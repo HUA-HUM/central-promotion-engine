@@ -89,3 +89,6 @@ Los logs estructurados incluyen campos útiles como:
 - `itemId`
 
 Las integraciones HTTP también usan helpers estructurados para request/response/error.
+
+
+Deployment pipeline ready via GitHub Actions.
