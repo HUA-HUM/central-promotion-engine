@@ -1,0 +1,20 @@
+kind: DatadogAgent
+apiVersion: datadoghq.com/v2alpha1
+metadata:
+  name: datadog
+  namespace: datadog
+spec:
+  global:
+    clusterName: central-promos-enginee
+    site: us5.datadoghq.com
+    credentials:
+      apiSecret:
+        secretName: datadog-secret
+        keyName: api-key
+    tags:
+      - env:prod
+      - service:central-promos-enginee
+  features:
+    logCollection:
+      enabled: true
+      containerCollectAll: true

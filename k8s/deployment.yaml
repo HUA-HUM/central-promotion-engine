@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: central-promos-enginee
+  namespace: central-promos-enginee
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: central-promos-enginee
+  template:
+    metadata:
+      labels:
+        app: central-promos-enginee
+    spec:
+      containers:
+        - name: central-promos-enginee
+          image: registry.digitalocean.com/central-promos-registry/central-promos-enginee:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: central-promos-enginee-config
+            - secretRef:
+                name: central-promos-enginee-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds: 20
