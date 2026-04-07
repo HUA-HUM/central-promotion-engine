@@ -6,12 +6,15 @@ import {
   PromotionFilters,
   PromotionRepository,
 } from '@core/adapters/repositories/IPromotionRepository';
+import { PromotionCatalog } from '@core/entities/PromotionCatalog';
 
 @Injectable()
 export class MongoPromotionRepository implements PromotionRepository {
   constructor(
     @InjectModel(Promotion.name)
     private readonly promotionModel: Model<Promotion>,
+    @InjectModel(PromotionCatalog.name)
+    private readonly promotionCatalogModel: Model<PromotionCatalog>,
   ) {}
 
   async saveAll(promotions: Promotion[]): Promise<void> {
@@ -29,6 +32,23 @@ export class MongoPromotionRepository implements PromotionRepository {
           update: {
             $set: promotion,
           },
+          upsert: true,
+        },
+      })),
+      { ordered: false },
+    );
+  }
+
+  async saveCatalogs(catalogs: PromotionCatalog[]): Promise<void> {
+    if (catalogs.length === 0) {
+      return;
+    }
+
+    await this.promotionCatalogModel.bulkWrite(
+      catalogs.map((catalog) => ({
+        updateOne: {
+          filter: { promotionId: catalog.promotionId },
+          update: { $set: catalog },
           upsert: true,
         },
       })),

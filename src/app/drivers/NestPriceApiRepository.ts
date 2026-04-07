@@ -16,6 +16,13 @@ export class NestPriceApiRepository implements PriceApiRepository {
   ) {}
 
   async getMetrics(input: { itemId: string; salePrice: number }): Promise<PriceMetrics> {
+    // TODO: Implementar llamada real a la API de Precio para obtener las métricas del ítem, actualmente se devuelve un objeto simulado para evitar errores en la ejecución del proceso de sincronización. Pendiente arreglar la meli api primero
+    return {
+      cost: 100,
+      profit: 50,
+      profitability: 50,
+      margin: 33.33,
+    }
     return this.post('/profitability/calculate', {
       mla: input.itemId,
       salePrice: input.salePrice,

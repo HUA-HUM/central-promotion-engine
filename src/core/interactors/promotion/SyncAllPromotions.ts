@@ -6,11 +6,9 @@ import {
 import { PriceApiRepository } from '@core/adapters/repositories/IPriceApiRepository';
 import { ProcessResult } from '@core/adapters/dto/ProcessResult';
 import { Logger } from '@core/drivers/logger/Logger';
-import {
-  Promotion,
-  PromotionStatus,
-  PromotionType,
-} from '@core/entities/Promotion';
+import { PaginationParams, PaginatedResult } from '@core/entities/common/Pagination';
+import { Promotion, PromotionStatus, PromotionType } from '@core/entities/Promotion';
+import { PromotionCatalog } from '@core/entities/PromotionCatalog';
 import { SaveAllPromotion } from '@core/interactors/promotion/SaveAllPromotion';
 
 export interface SyncAllPromotionsInput {
@@ -29,14 +27,22 @@ export class SyncAllPromotions {
   constructor(private readonly builder: SyncAllPromotionsBuilder) {}
 
   async execute(input: SyncAllPromotionsInput): Promise<ProcessResult> {
-    const promotions = await this.builder.mercadolibreApiRepository.getPromotions();
+    const pagination: PaginationParams = { limit: 50, offset: 0 };
+    const promotionCatalogs = await this.builder.mercadolibreApiRepository.getPromotions();
+    await this.builder.saveAllPromotion.saveCatalogs(promotionCatalogs);
     const consolidated: Promotion[] = [];
     let failure = 0;
 
-    for (const promotionCatalog of promotions) {
+    for (const promotionCatalog of promotionCatalogs) {
+      const consolidated: Promotion[] = [];
       const eligibleItems = await this.builder.mercadolibreApiRepository.getEligibleItems(
         promotionCatalog.promotionId,
+        promotionCatalog.type ?? PromotionType.UNKNOWN,
       );
+
+      if (!eligibleItems || eligibleItems.length === 0) {
+        continue;
+      }
 
       for (const item of eligibleItems) {
         try {
@@ -63,9 +69,9 @@ export class SyncAllPromotions {
           );
         }
       }
+      await this.builder.saveAllPromotion.saveAll(consolidated);
     }
 
-    await this.builder.saveAllPromotion.saveAll(consolidated);
 
     return {
       process: 'sync',

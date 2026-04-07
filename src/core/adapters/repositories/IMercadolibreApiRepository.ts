@@ -1,9 +1,45 @@
-import { PromotionType } from '@core/entities/Promotion';
+import { PromotionStatus, PromotionType } from '@core/entities/Promotion';
+
+export enum MeliPromotionStatus {
+  STARTED = 'started',
+  PENDIGNG = 'pending',
+  CANDIDATE = 'candidate',
+}
+
+export interface MeliPaginatedResponse<T> {
+  paging: {
+    total: number;
+    limit: number;
+    offset?: number;
+    searchAfter?: string;
+  };
+  results: T[];
+}
+
+export interface MeliPromotionCatalog {
+  id: string;
+  type: PromotionType;
+  status: PromotionStatus;
+  start_date?: string;
+  finish_date?: string;
+  deadline_date?: string;
+  name?: string;
+  sub_type?: string;
+  fixed_amount?: number;
+  min_purchase_amount?: number;
+}
 
 export interface PromotionCatalog {
   promotionId: string;
-  sellerId: string;
   type?: PromotionType;
+  status?: PromotionStatus;
+  startDate?: string;
+  finishDate?: string;
+  deadlineDate?: string;
+  name?: string;
+  subType?: string;
+  fixedAmount?: number;
+  minPurchaseAmount?: number;
 }
 
 export interface EligibleItem {
@@ -24,7 +60,7 @@ export interface ItemDetail {
 
 export interface MercadolibreApiRepository {
   getPromotions(): Promise<PromotionCatalog[]>;
-  getEligibleItems(promotionId: string): Promise<EligibleItem[]>;
+  getEligibleItems(promotionId: string, promotionType: string): Promise<EligibleItem[]>;
   getItemDetail(itemId: string): Promise<ItemDetail>;
   activatePromotion(command: {
     promotionId: string;

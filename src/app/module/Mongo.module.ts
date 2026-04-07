@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { MongoPromotionRepository } from '@app/drivers/repositories/mongo/MongoPromotionRepository';
 import { Promotion, PromotionSchema } from '@core/entities/Promotion';
+import { PromotionCatalog, PromotionCatalogSchema } from '@core/entities/PromotionCatalog';
 
 const repositories = [MongoPromotionRepository];
 
@@ -19,7 +20,10 @@ const repositories = [MongoPromotionRepository];
         retryReads: true,
       }),
     }),
-    MongooseModule.forFeature([{ name: Promotion.name, schema: PromotionSchema }]),
+    MongooseModule.forFeature([
+      { name: Promotion.name, schema: PromotionSchema },
+      { name: PromotionCatalog.name, schema: PromotionCatalogSchema },
+    ]),
   ],
   providers: repositories,
   exports: [MongooseModule, ...repositories],
