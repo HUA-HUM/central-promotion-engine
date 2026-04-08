@@ -7,10 +7,10 @@ export class PromotionCatalog {
   promotionId!: string;
 
   @Prop({ enum: PromotionType })
-  type?: PromotionType;
+  type!: PromotionType;
 
   @Prop({ enum: PromotionStatus, index: true })
-  status?: PromotionStatus;
+  status!: PromotionStatus;
 
   @Prop()
   name?: string;
@@ -25,13 +25,13 @@ export class PromotionCatalog {
   minPurchaseAmount?: number;
 
   @Prop()
-  startDate?: string;
+  startDate?: Date;
 
   @Prop()
-  finishDate?: string;
+  finishDate?: Date;
 
   @Prop()
-  deadlineDate?: string;
+  deadlineDate?: Date;
 }
 
 export const PromotionCatalogSchema = SchemaFactory.createForClass(PromotionCatalog);

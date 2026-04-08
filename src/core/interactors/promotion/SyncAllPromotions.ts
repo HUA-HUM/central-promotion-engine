@@ -6,9 +6,7 @@ import {
 import { PriceApiRepository } from '@core/adapters/repositories/IPriceApiRepository';
 import { ProcessResult } from '@core/adapters/dto/ProcessResult';
 import { Logger } from '@core/drivers/logger/Logger';
-import { PaginationParams, PaginatedResult } from '@core/entities/common/Pagination';
 import { Promotion, PromotionStatus, PromotionType } from '@core/entities/Promotion';
-import { PromotionCatalog } from '@core/entities/PromotionCatalog';
 import { SaveAllPromotion } from '@core/interactors/promotion/SaveAllPromotion';
 
 export interface SyncAllPromotionsInput {
@@ -27,7 +25,6 @@ export class SyncAllPromotions {
   constructor(private readonly builder: SyncAllPromotionsBuilder) {}
 
   async execute(input: SyncAllPromotionsInput): Promise<ProcessResult> {
-    const pagination: PaginationParams = { limit: 50, offset: 0 };
     const promotionCatalogs = await this.builder.mercadolibreApiRepository.getPromotions();
     await this.builder.saveAllPromotion.saveCatalogs(promotionCatalogs);
     const consolidated: Promotion[] = [];
@@ -37,7 +34,7 @@ export class SyncAllPromotions {
       const consolidated: Promotion[] = [];
       const eligibleItems = await this.builder.mercadolibreApiRepository.getEligibleItems(
         promotionCatalog.promotionId,
-        promotionCatalog.type ?? PromotionType.UNKNOWN,
+        promotionCatalog.type,
       );
 
       if (!eligibleItems || eligibleItems.length === 0) {
@@ -84,7 +81,7 @@ export class SyncAllPromotions {
 
   private async buildPromotion(
     promotionId: string,
-    promotionType: PromotionType | undefined,
+    promotionType: PromotionType,
     eligibleItem: EligibleItem,
     input: SyncAllPromotionsInput,
   ): Promise<Promotion> {
@@ -100,7 +97,7 @@ export class SyncAllPromotions {
       promotionId,
       itemId: eligibleItem.itemId,
       sellerId: eligibleItem.sellerId ?? detail.sellerId,
-      type: promotionType ?? PromotionType.UNKNOWN,
+      type: promotionType,
       status: PromotionStatus.SYNCED,
       prices: {
         list: eligibleItem.listPrice ?? detail.listPrice,
