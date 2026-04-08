@@ -29,6 +29,16 @@ export interface MeliPromotionCatalog {
   min_purchase_amount?: number;
 }
 
+export interface MeliEligibleItem {
+  id: string;
+  status: MeliPromotionStatus;
+  original_price: number;
+  min_discounted_price: number;
+  max_discounted_price: number;
+  suggested_discounted_price: number;
+}
+
+
 export interface PromotionCatalog {
   promotionId: string;
   type: PromotionType;
@@ -61,6 +71,7 @@ export interface ItemDetail {
 export interface MercadolibreApiRepository {
   getPromotions(): Promise<PromotionCatalog[]>;
   getEligibleItems(promotionId: string, promotionType: string): Promise<EligibleItem[]>;
+  getElegibleItemsPaginated(promotionId: string, promotionType: string, searchAfter?: string): Promise<MeliPaginatedResponse<EligibleItem>>;
   getItemDetail(itemId: string): Promise<ItemDetail>;
   activatePromotion(command: {
     promotionId: string;

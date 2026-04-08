@@ -8,6 +8,7 @@ import {
   PromotionCatalog,
   MeliPaginatedResponse,
   MeliPromotionCatalog,
+  MeliEligibleItem,
 } from '@core/adapters/repositories/IMercadolibreApiRepository';
 import { AppConfigService } from '@app/drivers/config/AppConfigService';
 import { loggerError, loggerInfo } from '@core/drivers/logger/Logger';
@@ -53,6 +54,39 @@ export class NestMercadolibreApiRepository implements MercadolibreApiRepository 
     } catch (error) {
       console.log('catch error in getEligibleItems for promotionId', promotionId);
       return [];
+    }
+  }
+
+  async getElegibleItemsPaginated(promotionId: string, promotionType: string, searchAfter?: string): Promise<MeliPaginatedResponse<EligibleItem>> {
+    try {
+      const params = new URLSearchParams({
+        promotionType,
+        limit: '50',
+      });
+      if (searchAfter) {
+        params.append('searchAfter', searchAfter);
+      }
+      const response = await this.get<MeliPaginatedResponse<MeliEligibleItem>>(`/meli/seller-promotions/${promotionId}/items?${params.toString()}`);
+      const eligibleItems: EligibleItem[] = response.results.map((item) => ({
+        itemId: item.id,
+        sellerId: 'unknown', // La API de MercadoLibre no devuelve el sellerId en esta endpoint, se asigna un valor por defecto. Pendiente revisar si es posible obtener el sellerId en la respuesta o si es necesario hacer una llamada adicional para obtenerlo.
+        suggestedPrice: item.suggested_discounted_price,
+        listPrice: item.original_price,
+        strikethroughPrice: item.min_discounted_price,
+      }));
+      return {
+        paging: response.paging,
+        results: eligibleItems,
+      };
+    } catch (error) {
+      console.log('catch error in getElegibleItemsPaginated for promotionId', promotionId);
+      return {
+        paging: {
+          total: 0,
+          limit: 50,
+        },
+        results: [],
+      };
     }
   }
 

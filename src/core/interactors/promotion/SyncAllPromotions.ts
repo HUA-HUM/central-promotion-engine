@@ -27,53 +27,65 @@ export class SyncAllPromotions {
   async execute(input: SyncAllPromotionsInput): Promise<ProcessResult> {
     const promotionCatalogs = await this.builder.mercadolibreApiRepository.getPromotions();
     await this.builder.saveAllPromotion.saveCatalogs(promotionCatalogs);
-    const consolidated: Promotion[] = [];
+    let success = 0;
     let failure = 0;
 
     for (const promotionCatalog of promotionCatalogs) {
-      const consolidated: Promotion[] = [];
-      const eligibleItems = await this.builder.mercadolibreApiRepository.getEligibleItems(
-        promotionCatalog.promotionId,
-        promotionCatalog.type,
-      );
+      let searchAfter: string | undefined;
 
-      if (!eligibleItems || eligibleItems.length === 0) {
-        continue;
-      }
+      do {
+        const response = await this.builder.mercadolibreApiRepository.getElegibleItemsPaginated(
+          promotionCatalog.promotionId,
+          promotionCatalog.type,
+          searchAfter,
+        );
 
-      for (const item of eligibleItems) {
-        try {
-          const promotion = await this.buildPromotion(
-            promotionCatalog.promotionId,
-            promotionCatalog.type,
-            item,
-            input,
-          );
-          consolidated.push(promotion);
-        } catch (error) {
-          failure += 1;
-          const message = error instanceof Error ? error.message : 'Unknown sync error';
-          Logger.error(
-            JSON.stringify({
-              message: 'Promotion sync item failed',
-              process: 'sync',
-              sourceProcess: input.sourceProcess,
-              sellerId: item.sellerId,
-              itemId: item.itemId,
-              promotionId: promotionCatalog.promotionId,
-              reason: message,
-            }),
-          );
+        const consolidated: Promotion[] = [];
+        const eligibleItems = response.results ?? [];
+        // console.log(response);
+
+        for (const item of eligibleItems) {
+          try {
+            const promotion = await this.buildPromotion(
+              promotionCatalog.promotionId,
+              promotionCatalog.type,
+              item,
+              input,
+            );
+            consolidated.push(promotion);
+          } catch (error) {
+            failure += 1;
+            const message = error instanceof Error ? error.message : 'Unknown sync error';
+            Logger.error(
+              JSON.stringify({
+                message: 'Promotion sync item failed',
+                process: 'sync',
+                sourceProcess: input.sourceProcess,
+                sellerId: item.sellerId,
+                itemId: item.itemId,
+                promotionId: promotionCatalog.promotionId,
+                reason: message,
+              }),
+            );
+          }
         }
-      }
-      await this.builder.saveAllPromotion.saveAll(consolidated);
+
+        if (consolidated.length > 0) {
+          await this.builder.saveAllPromotion.saveAll(consolidated);
+          success += consolidated.length;
+        }
+
+        console.log(`Processed promotion ${promotionCatalog.promotionId} page, success: ${success}, failure: ${failure}`);
+
+        searchAfter = response.paging?.searchAfter;
+      } while (searchAfter);
     }
 
 
     return {
       process: 'sync',
-      total: consolidated.length + failure,
-      success: consolidated.length,
+      total: success + failure,
+      success,
       failure,
       skipped: 0,
     };
