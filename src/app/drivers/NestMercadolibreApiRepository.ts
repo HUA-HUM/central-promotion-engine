@@ -73,6 +73,11 @@ export class NestMercadolibreApiRepository implements MercadolibreApiRepository 
         suggestedPrice: item.suggested_discounted_price,
         listPrice: item.original_price,
         strikethroughPrice: item.min_discounted_price,
+        // Nuevos datos de la api
+        originalPrice: item.original_price,
+        minDiscountedPrice: item.min_discounted_price,
+        maxDiscountedPrice: item.max_discounted_price,
+        suggestedDiscountedPrice: item.suggested_discounted_price,
       }));
       return {
         paging: response.paging,

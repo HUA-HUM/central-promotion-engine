@@ -115,6 +115,11 @@ export class SyncAllPromotions {
         list: eligibleItem.listPrice ?? detail.listPrice,
         suggested: suggestedPrice,
         strikethrough: eligibleItem.strikethroughPrice ?? detail.strikethroughPrice,
+        // Nuevos datos de la api
+        originalPrice: eligibleItem.originalPrice,
+        minDiscountedPrice: eligibleItem.minDiscountedPrice,
+        maxDiscountedPrice: eligibleItem.maxDiscountedPrice,
+        suggestedDiscountedPrice: eligibleItem.suggestedDiscountedPrice,
       },
       economics: {
         cost: metrics.cost,

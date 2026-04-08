@@ -58,6 +58,11 @@ export interface EligibleItem {
   suggestedPrice: number;
   listPrice?: number;
   strikethroughPrice?: number;
+  // Nuevos datos de la api
+  originalPrice: number;
+  minDiscountedPrice: number;
+  maxDiscountedPrice: number;
+  suggestedDiscountedPrice: number;
 }
 
 export interface ItemDetail {

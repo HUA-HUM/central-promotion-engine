@@ -45,6 +45,19 @@ export class PromotionPrices {
 
   @Prop()
   strikethrough?: number;
+
+  // Nuevos datos de la api
+  @Prop()
+  originalPrice?: number;
+
+  @Prop()
+  minDiscountedPrice?: number;
+
+  @Prop()
+  maxDiscountedPrice?: number;
+
+  @Prop()
+  suggestedDiscountedPrice?: number;
 }
 
 @Schema({ _id: false })
