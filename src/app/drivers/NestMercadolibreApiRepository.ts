@@ -48,7 +48,7 @@ export class NestMercadolibreApiRepository implements MercadolibreApiRepository 
 
   async getEligibleItems(promotionId: string, promotionType: string): Promise<EligibleItem[]> {
     try {
-      const response = await this.get<MeliPaginatedResponse<EligibleItem>>(`/meli/seller-promotions/${promotionId}/items?promotionType=${promotionType}`);
+      const response = await this.get<MeliPaginatedResponse<EligibleItem>>(`/meli/seller-promotions/${promotionId}/items?promotion_type=${promotionType}`);
       // TODO: Implementar lógica de paginación utilizando response.paging
       return response.results;
     } catch (error) {
@@ -60,7 +60,7 @@ export class NestMercadolibreApiRepository implements MercadolibreApiRepository 
   async getElegibleItemsPaginated(promotionId: string, promotionType: string, searchAfter?: string): Promise<MeliPaginatedResponse<EligibleItem>> {
     try {
       const params = new URLSearchParams({
-        promotionType,
+        promotion_type: promotionType,
         limit: '50',
       });
       if (searchAfter) {
@@ -69,22 +69,21 @@ export class NestMercadolibreApiRepository implements MercadolibreApiRepository 
       const response = await this.get<MeliPaginatedResponse<MeliEligibleItem>>(`/meli/seller-promotions/${promotionId}/items?${params.toString()}`);
       const eligibleItems: EligibleItem[] = response.results.map((item) => ({
         itemId: item.id,
-        sellerId: 'unknown', // La API de MercadoLibre no devuelve el sellerId en esta endpoint, se asigna un valor por defecto. Pendiente revisar si es posible obtener el sellerId en la respuesta o si es necesario hacer una llamada adicional para obtenerlo.
-        suggestedPrice: item.suggested_discounted_price,
-        listPrice: item.original_price,
-        strikethroughPrice: item.min_discounted_price,
-        // Nuevos datos de la api
+        status : item.status,
+        offerId: item.offer_id,
         originalPrice: item.original_price,
-        minDiscountedPrice: item.min_discounted_price,
-        maxDiscountedPrice: item.max_discounted_price,
-        suggestedDiscountedPrice: item.suggested_discounted_price,
+        minPrice: item.min_discounted_price,
+        maxPrice: item.max_discounted_price,
+        suggestedPrice: item.suggested_discounted_price ?? item.price,
+        sellerPercentage: item.seller_percentage,
+        meliPercentage: item.meli_percentage,
       }));
       return {
         paging: response.paging,
         results: eligibleItems,
       };
     } catch (error) {
-      console.log('catch error in getElegibleItemsPaginated for promotionId', promotionId);
+      console.log('catch error in getElegibleItemsPaginated for promotionId', promotionId, promotionType, searchAfter, error);
       return {
         paging: {
           total: 0,
@@ -99,7 +98,6 @@ export class NestMercadolibreApiRepository implements MercadolibreApiRepository 
     // TODO: Implementar llamada real a la API de MercadoLibre para obtener los detalles del ítem, actualmente se devuelve un objeto simulado para evitar errores en la ejecución del proceso de sincronización. Pendiente arreglar la meli api primero
     return {
       itemId,
-      sellerId: 'unknown',
     }
     return this.get(`/items/${itemId}`);
   }
@@ -107,7 +105,6 @@ export class NestMercadolibreApiRepository implements MercadolibreApiRepository 
   async activatePromotion(command: {
     promotionId: string;
     itemId: string;
-    sellerId: string;
   }): Promise<{ offerId?: string; status: string }> {
     return this.post('/promotions/activate', command);
   }
@@ -115,7 +112,6 @@ export class NestMercadolibreApiRepository implements MercadolibreApiRepository 
   async pauseOrDeletePromotion(command: {
     promotionId: string;
     itemId: string;
-    sellerId: string;
     offerId?: string;
     action: 'pause' | 'delete';
   }): Promise<{ status: string }> {

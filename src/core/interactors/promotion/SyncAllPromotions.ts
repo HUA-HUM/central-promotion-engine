@@ -6,7 +6,8 @@ import {
 import { PriceApiRepository } from '@core/adapters/repositories/IPriceApiRepository';
 import { ProcessResult } from '@core/adapters/dto/ProcessResult';
 import { Logger } from '@core/drivers/logger/Logger';
-import { Promotion, PromotionStatus, PromotionType } from '@core/entities/Promotion';
+import { Promotion, PromotionStatus } from '@core/entities/Promotion';
+import { PromotionCatalog, PromotionType } from '@core/entities/PromotionCatalog';
 import { SaveAllPromotion } from '@core/interactors/promotion/SaveAllPromotion';
 
 export interface SyncAllPromotionsInput {
@@ -42,13 +43,11 @@ export class SyncAllPromotions {
 
         const consolidated: Promotion[] = [];
         const eligibleItems = response.results ?? [];
-        // console.log(response);
 
         for (const item of eligibleItems) {
           try {
             const promotion = await this.buildPromotion(
-              promotionCatalog.promotionId,
-              promotionCatalog.type,
+              promotionCatalog,
               item,
               input,
             );
@@ -61,7 +60,6 @@ export class SyncAllPromotions {
                 message: 'Promotion sync item failed',
                 process: 'sync',
                 sourceProcess: input.sourceProcess,
-                sellerId: item.sellerId,
                 itemId: item.itemId,
                 promotionId: promotionCatalog.promotionId,
                 reason: message,
@@ -92,8 +90,7 @@ export class SyncAllPromotions {
   }
 
   private async buildPromotion(
-    promotionId: string,
-    promotionType: PromotionType,
+    promotionCatalog: PromotionCatalog,
     eligibleItem: EligibleItem,
     input: SyncAllPromotionsInput,
   ): Promise<Promotion> {
@@ -106,20 +103,17 @@ export class SyncAllPromotions {
 
     const now = new Date();
     return {
-      promotionId,
       itemId: eligibleItem.itemId,
-      sellerId: eligibleItem.sellerId ?? detail.sellerId,
-      type: promotionType,
+      promotionId: promotionCatalog.promotionId,
+      name: promotionCatalog.name,
+      type: promotionCatalog.type,
       status: PromotionStatus.SYNCED,
+      offerId: eligibleItem.offerId,
       prices: {
-        list: eligibleItem.listPrice ?? detail.listPrice,
-        suggested: suggestedPrice,
-        strikethrough: eligibleItem.strikethroughPrice ?? detail.strikethroughPrice,
-        // Nuevos datos de la api
         originalPrice: eligibleItem.originalPrice,
-        minDiscountedPrice: eligibleItem.minDiscountedPrice,
-        maxDiscountedPrice: eligibleItem.maxDiscountedPrice,
-        suggestedDiscountedPrice: eligibleItem.suggestedDiscountedPrice,
+        minPrice: eligibleItem.minPrice,
+        maxPrice: eligibleItem.maxPrice,
+        suggestedPrice: eligibleItem.suggestedPrice,
       },
       economics: {
         cost: metrics.cost,
@@ -132,7 +126,7 @@ export class SyncAllPromotions {
         syncedAt: now,
         updatedBy: input.updatedBy,
         sourceProcess: input.sourceProcess,
-        statusReason: 'Promotion synchronized and enriched',
+        statusReason: 'Promotion synchronized',
       },
       auditTrail: [
         {
@@ -142,6 +136,24 @@ export class SyncAllPromotions {
           reason: 'Promotion synchronized',
         },
       ],
+      terms: {
+        resignation: {
+            mercadolibre: {
+              percentage: eligibleItem.meliPercentage,
+              amount: eligibleItem.originalPrice * (eligibleItem.meliPercentage ?? 0) / 100,
+            },
+            seller: {
+              percentage: eligibleItem.sellerPercentage,
+              amount: eligibleItem.originalPrice * (eligibleItem.sellerPercentage ?? 0) / 100,
+            },
+            total: (eligibleItem.meliPercentage ?? 0) + (eligibleItem.sellerPercentage ?? 0),
+        },
+        pvp: {
+          current: {},
+          revenue: {},
+          store: {},
+        },
+      },
     };
   }
 }

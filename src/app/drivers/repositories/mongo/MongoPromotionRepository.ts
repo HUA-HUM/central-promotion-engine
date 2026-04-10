@@ -93,10 +93,6 @@ export class MongoPromotionRepository implements PromotionRepository {
       query.status = filters.status;
     }
 
-    if (filters.sellerId) {
-      query.sellerId = filters.sellerId;
-    }
-
     if (filters.itemId) {
       query.itemId = filters.itemId;
     }

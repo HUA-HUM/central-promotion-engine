@@ -1,19 +1,32 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { PromotionStatus, PromotionType } from '@core/entities/Promotion';
+
+export enum PromotionCatalogStatus {
+  PENDING = 'pending',
+  STARTED = 'started',
+  FINISHED = 'finished',
+}
+
+export enum PromotionType {
+  DEAL = 'DEAL',
+  SMART = 'SMART',
+  PRE_NEGOTIATED = 'PRE_NEGOTIATED',
+  CUSTOM = 'CUSTOM',
+  UNKNOWN = 'UNKNOWN',
+}
 
 @Schema({ collection: 'promotionCatalogs', timestamps: true })
 export class PromotionCatalog {
   @Prop({ required: true, unique: true, index: true })
   promotionId!: string;
 
-  @Prop({ enum: PromotionType })
+  @Prop({ enum: PromotionType, required: true })
   type!: PromotionType;
 
-  @Prop({ enum: PromotionStatus, index: true })
-  status!: PromotionStatus;
+  @Prop({ enum: PromotionCatalogStatus, index: true })
+  status!: PromotionCatalogStatus;
 
-  @Prop()
-  name?: string;
+  @Prop({ required: true })
+  name!: string;
 
   @Prop()
   subType?: string;

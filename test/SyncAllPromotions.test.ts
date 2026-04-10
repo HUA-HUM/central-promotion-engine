@@ -6,11 +6,11 @@ describe('SyncAllPromotions', () => {
     const saveAll = jest.fn();
     const interactor = new SyncAllPromotions({
       mercadolibreApiRepository: {
-        getPromotions: async () => [{ promotionId: 'promo-1', sellerId: 'seller-1' }],
+        getPromotions: async () => [{ promotionId: 'promo-1' }],
         getEligibleItems: async () => [
-          { itemId: 'MLA1', sellerId: 'seller-1', suggestedPrice: 120, listPrice: 150 },
+          { itemId: 'MLA1', suggestedPrice: 120, listPrice: 150 },
         ],
-        getItemDetail: async () => ({ itemId: 'MLA1', sellerId: 'seller-1', listPrice: 150 }),
+        getItemDetail: async () => ({ itemId: 'MLA1', listPrice: 150 }),
         activatePromotion: async () => ({ status: 'active' }),
         pauseOrDeletePromotion: async () => ({ status: 'paused' }),
       },

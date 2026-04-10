@@ -35,7 +35,6 @@ export class ActivatePromotions {
         const response = await this.builder.mercadolibreApiRepository.activatePromotion({
           promotionId: promotion.promotionId,
           itemId: promotion.itemId,
-          sellerId: promotion.sellerId,
         });
 
         const updatedPromotion: Promotion = {
@@ -90,7 +89,6 @@ export class ActivatePromotions {
             message: 'Promotion activation failed',
             process: 'activate',
             sourceProcess: input.sourceProcess,
-            sellerId: promotion.sellerId,
             promotionId: promotion.promotionId,
             itemId: promotion.itemId,
             reason,

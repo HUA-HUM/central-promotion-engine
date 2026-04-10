@@ -1,4 +1,5 @@
-import { PromotionStatus, PromotionType } from '@core/entities/Promotion';
+import { PromotionCatalogStatus } from '@core/entities/PromotionCatalog';
+import { PromotionType } from '@core/entities/PromotionCatalog';
 
 export enum MeliPromotionStatus {
   STARTED = 'started',
@@ -17,13 +18,13 @@ export interface MeliPaginatedResponse<T> {
 }
 
 export interface MeliPromotionCatalog {
+  name: string;
   id: string;
   type: PromotionType;
-  status: PromotionStatus;
+  status: PromotionCatalogStatus;
   start_date?: Date;
   finish_date?: Date;
   deadline_date?: Date;
-  name?: string;
   sub_type?: string;
   fixed_amount?: number;
   min_purchase_amount?: number;
@@ -33,20 +34,26 @@ export interface MeliEligibleItem {
   id: string;
   status: MeliPromotionStatus;
   original_price: number;
-  min_discounted_price: number;
-  max_discounted_price: number;
+  // DEAL
   suggested_discounted_price: number;
+  min_discounted_price?: number;
+  max_discounted_price?: number;
+  // SMART
+  offer_id?: string;
+  price?: number;
+  meli_percentage?: number;
+  seller_percentage?: number;
 }
 
 
 export interface PromotionCatalog {
+  name: string;
   promotionId: string;
   type: PromotionType;
-  status: PromotionStatus;
+  status: PromotionCatalogStatus;
   startDate?: Date;
   finishDate?: Date;
   deadlineDate?: Date;
-  name?: string;
   subType?: string;
   fixedAmount?: number;
   minPurchaseAmount?: number;
@@ -54,20 +61,18 @@ export interface PromotionCatalog {
 
 export interface EligibleItem {
   itemId: string;
-  sellerId: string;
-  suggestedPrice: number;
-  listPrice?: number;
-  strikethroughPrice?: number;
-  // Nuevos datos de la api
+  status: MeliPromotionStatus;
+  offerId?: string;
   originalPrice: number;
-  minDiscountedPrice: number;
-  maxDiscountedPrice: number;
-  suggestedDiscountedPrice: number;
+  suggestedPrice: number;
+  minPrice?: number;
+  maxPrice?: number;
+  meliPercentage?: number;
+  sellerPercentage?: number;
 }
 
 export interface ItemDetail {
   itemId: string;
-  sellerId: string;
   listPrice?: number;
   suggestedPrice?: number;
   strikethroughPrice?: number;
@@ -81,12 +86,10 @@ export interface MercadolibreApiRepository {
   activatePromotion(command: {
     promotionId: string;
     itemId: string;
-    sellerId: string;
   }): Promise<{ offerId?: string; status: string }>;
   pauseOrDeletePromotion(command: {
     promotionId: string;
     itemId: string;
-    sellerId: string;
     offerId?: string;
     action: 'pause' | 'delete';
   }): Promise<{ status: string }>;

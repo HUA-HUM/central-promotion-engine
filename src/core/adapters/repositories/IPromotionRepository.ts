@@ -3,7 +3,6 @@ import { PromotionCatalog } from '@core/entities/PromotionCatalog';
 
 export interface PromotionFilters {
   status?: PromotionStatus;
-  sellerId?: string;
   itemId?: string;
   limit?: number;
 }

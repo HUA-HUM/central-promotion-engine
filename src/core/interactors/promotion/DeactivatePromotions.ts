@@ -41,7 +41,7 @@ export class DeactivatePromotions {
           ...promotion,
           prices: {
             ...promotion.prices,
-            current: currentSalePrice,
+            originalPrice: currentSalePrice,
           },
           economics: {
             ...promotion.economics,
@@ -62,7 +62,6 @@ export class DeactivatePromotions {
         await this.builder.mercadolibreApiRepository.pauseOrDeletePromotion({
           promotionId: promotion.promotionId,
           itemId: promotion.itemId,
-          sellerId: promotion.sellerId,
           offerId: promotion.offerId,
           action,
         });
@@ -117,7 +116,6 @@ export class DeactivatePromotions {
             message: 'Promotion deactivation failed',
             process: 'deactivate',
             sourceProcess: input.sourceProcess,
-            sellerId: promotion.sellerId,
             promotionId: promotion.promotionId,
             itemId: promotion.itemId,
             reason,

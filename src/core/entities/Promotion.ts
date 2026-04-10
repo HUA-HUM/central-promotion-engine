@@ -1,4 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { PromotionType } from '@core/entities/PromotionCatalog';
+import { Terms } from '@core/entities/Terms';
 
 export enum PromotionStatus {
   SYNCED = 'SYNCED',
@@ -8,13 +10,6 @@ export enum PromotionStatus {
   FAILED_SYNC = 'FAILED_SYNC',
   FAILED_ACTIVATION = 'FAILED_ACTIVATION',
   FAILED_DEACTIVATION = 'FAILED_DEACTIVATION',
-}
-
-export enum PromotionType {
-  DEAL = 'DEAL',
-  SMART = 'SMART',
-  CUSTOM = 'CUSTOM',
-  UNKNOWN = 'UNKNOWN',
 }
 
 @Schema({ _id: false })
@@ -35,29 +30,16 @@ export class PromotionAudit {
 @Schema({ _id: false })
 export class PromotionPrices {
   @Prop()
-  list?: number;
-
-  @Prop()
-  suggested?: number;
-
-  @Prop()
-  current?: number;
-
-  @Prop()
-  strikethrough?: number;
-
-  // Nuevos datos de la api
-  @Prop()
   originalPrice?: number;
 
   @Prop()
-  minDiscountedPrice?: number;
+  minPrice?: number;
 
   @Prop()
-  maxDiscountedPrice?: number;
+  maxPrice?: number;
 
   @Prop()
-  suggestedDiscountedPrice?: number;
+  suggestedPrice?: number;
 }
 
 @Schema({ _id: false })
@@ -104,23 +86,32 @@ export class PromotionMetadata {
 
 @Schema({ collection: 'promotions', timestamps: true })
 export class Promotion {
-  @Prop({ required: true })
-  promotionId!: string;
-
   @Prop({ required: true, index: true })
   itemId!: string;
 
-  @Prop({ required: true, index: true })
-  sellerId!: string;
+  @Prop({ required: true })
+  promotionId!: string;
+
+  @Prop({ required: true })
+  name!: string;
 
   @Prop({ required: true, enum: PromotionType })
   type!: PromotionType;
-
+  
   @Prop({ required: true, enum: PromotionStatus, index: true })
   status!: PromotionStatus;
 
   @Prop()
-  offerId?: string;
+  offerId?: string; // Complete
+
+  @Prop()
+  sku?: string; // Complete
+
+  @Prop()
+  listingInfo?: string; // Complete
+
+  @Prop()
+  categoryId?: string; // Complete
 
   @Prop({ type: PromotionPrices, default: {} })
   prices!: PromotionPrices;
@@ -133,6 +124,9 @@ export class Promotion {
 
   @Prop({ type: [PromotionAudit], default: [] })
   auditTrail!: PromotionAudit[];
+
+  @Prop({ type: Terms, default: {} })
+  terms!: Terms;
 }
 
 export const PromotionSchema = SchemaFactory.createForClass(Promotion);
