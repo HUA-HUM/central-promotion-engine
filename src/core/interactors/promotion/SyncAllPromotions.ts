@@ -113,7 +113,7 @@ export class SyncAllPromotions {
     input: SyncAllPromotionsInput,
   ): Promise<Promotion> {
     const detail = await this.builder.mercadolibreApiRepository.getItemDetail(eligibleItem.itemId);
-    const suggestedPrice = eligibleItem.suggestedPrice ?? detail.suggestedPrice ?? detail.listPrice ?? 0;
+    const suggestedPrice = eligibleItem.suggestedPrice ?? detail.price ?? 0;
     const metrics = await this.builder.priceApiRepository.getMetrics({
       itemId: eligibleItem.itemId,
       salePrice: suggestedPrice,
@@ -127,6 +127,9 @@ export class SyncAllPromotions {
       type: promotionCatalog.type,
       status: PromotionStatus.SYNCED,
       offerId: eligibleItem.offerId,
+      sku: detail.sku,
+      categoryId: detail.categoryId,
+      listingInfo: detail.listingInfo,
       prices: {
         originalPrice: eligibleItem.originalPrice,
         minPrice: eligibleItem.minPrice,

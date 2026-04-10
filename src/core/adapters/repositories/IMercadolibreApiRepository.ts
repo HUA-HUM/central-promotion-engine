@@ -46,6 +46,13 @@ export interface MeliEligibleItem {
   // PRE_NEGOTIATED
 }
 
+export interface MeliItemDetail {
+  id: string;
+  sellerSku: string;
+  categoryId: string;
+  price: number;
+  listingInfo?: string; // listing_type_id
+}
 
 export interface PromotionCatalog {
   name: string;
@@ -74,9 +81,10 @@ export interface EligibleItem {
 
 export interface ItemDetail {
   itemId: string;
-  listPrice?: number;
-  suggestedPrice?: number;
-  strikethroughPrice?: number;
+  sku?: string;
+  categoryId?: string;
+  listingInfo?: string;
+  price?: number;
 }
 
 export interface MercadolibreApiRepository {

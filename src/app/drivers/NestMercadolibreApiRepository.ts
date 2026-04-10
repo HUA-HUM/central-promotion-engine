@@ -9,6 +9,7 @@ import {
   MeliPaginatedResponse,
   MeliPromotionCatalog,
   MeliEligibleItem,
+  MeliItemDetail,
 } from '@core/adapters/repositories/IMercadolibreApiRepository';
 import { AppConfigService } from '@app/drivers/config/AppConfigService';
 import { loggerError, loggerInfo } from '@core/drivers/logger/Logger';
@@ -83,7 +84,7 @@ export class NestMercadolibreApiRepository implements MercadolibreApiRepository 
         results: eligibleItems,
       };
     } catch (error) {
-      console.log('catch error in getElegibleItemsPaginated for promotionId', promotionId, promotionType, searchAfter, error);
+      console.log('catch error in getElegibleItemsPaginated for promotionId', promotionId, promotionType, searchAfter);
       return {
         paging: {
           total: 0,
@@ -95,11 +96,14 @@ export class NestMercadolibreApiRepository implements MercadolibreApiRepository 
   }
 
   async getItemDetail(itemId: string): Promise<ItemDetail> {
-    // TODO: Implementar llamada real a la API de MercadoLibre para obtener los detalles del ítem, actualmente se devuelve un objeto simulado para evitar errores en la ejecución del proceso de sincronización. Pendiente arreglar la meli api primero
+    const detail = await this.get<MeliItemDetail>(`/meli/products/${itemId}`);
     return {
-      itemId,
-    }
-    return this.get(`/items/${itemId}`);
+      itemId: detail.id,
+      sku: detail.sellerSku,
+      categoryId: detail.categoryId,
+      listingInfo: detail.listingInfo ?? 'gold_special', // gold_special, gold_pro, silver, free, etc
+      price: detail.price,
+    };
   }
 
   async activatePromotion(command: {

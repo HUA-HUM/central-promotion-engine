@@ -102,16 +102,16 @@ export class Promotion {
   status!: PromotionStatus;
 
   @Prop()
-  offerId?: string; // Complete
+  offerId?: string;
 
   @Prop()
-  sku?: string; // Complete
+  sku?: string;
 
   @Prop()
-  listingInfo?: string; // Complete
+  listingInfo?: string;
 
   @Prop()
-  categoryId?: string; // Complete
+  categoryId?: string;
 
   @Prop({ type: PromotionPrices, default: {} })
   prices!: PromotionPrices;
