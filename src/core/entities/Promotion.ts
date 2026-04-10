@@ -55,9 +55,6 @@ export class PromotionEconomics {
 
   @Prop()
   margin?: number;
-
-  @Prop()
-  minAllowedProfitability?: number;
 }
 
 @Schema({ _id: false })

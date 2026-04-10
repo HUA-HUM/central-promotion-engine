@@ -148,7 +148,6 @@ export class SyncAllPromotions {
         profit: metrics.profit,
         profitability: metrics.profitability,
         margin: metrics.margin,
-        minAllowedProfitability: this.builder.config.defaultMinProfitability,
       },
       metadata: {
         syncedAt: now,

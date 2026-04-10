@@ -144,8 +144,7 @@ export class DeactivatePromotions {
   private stillMeetsRules(promotion: Promotion): boolean {
     const profitability = promotion.economics.profitability ?? Number.NEGATIVE_INFINITY;
     const profit = promotion.economics.profit ?? Number.NEGATIVE_INFINITY;
-    const minAllowed =
-      promotion.economics.minAllowedProfitability ?? this.builder.config.defaultMinProfitability;
+    const minAllowed = this.builder.config.defaultMinProfitability;
 
     return profitability >= minAllowed && profit >= this.builder.config.defaultMinProfit;
   }
