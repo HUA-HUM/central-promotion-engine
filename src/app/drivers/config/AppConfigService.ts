@@ -20,7 +20,7 @@ export class AppConfigService {
       mercadolibreApiToken: this.configService.get<string>('MERCADOLIBRE_API_TOKEN'),
       priceApiBaseUrl: this.configService.getOrThrow<string>('PRICE_API_BASE_URL'),
       priceApiTimeout: this.configService.get<number>('PRICE_API_TIMEOUT', 10000),
-      priceApiToken: this.configService.get<string>('PRICE_API_TOKEN'),
+      priceApiToken:this.configService.get<string>('PRICE_API_TOKEN'),
       syncCron: this.configService.get<string>('SYNC_PROMOTIONS_CRON', '0 */30 * * * *'),
       activateCron: this.configService.get<string>('ACTIVATE_PROMOTIONS_CRON', '0 */15 * * * *'),
       deactivateCron: this.configService.get<string>('DEACTIVATE_PROMOTIONS_CRON', '0 */20 * * * *'),

@@ -51,7 +51,7 @@ export interface MeliItemDetail {
   sellerSku: string;
   categoryId: string;
   price: number;
-  listingInfo?: string; // listing_type_id
+  listingTypeId: string;
 }
 
 export interface PromotionCatalog {
@@ -81,10 +81,10 @@ export interface EligibleItem {
 
 export interface ItemDetail {
   itemId: string;
-  sku?: string;
-  categoryId?: string;
-  listingInfo?: string;
-  price?: number;
+  sku: string;
+  categoryId: string;
+  listingTypeId: string;
+  price: number;
 }
 
 export interface MercadolibreApiRepository {

@@ -5,7 +5,15 @@ export interface PriceMetrics {
   margin?: number;
 }
 
+export interface PriceMetricsInput {
+  itemId: string;
+  sku?: string;
+  categoryId: string;
+  publicationType: string;
+  salePrice: number;
+  meliContributionPercentage?: number;
+}
+
 export interface PriceApiRepository {
-  getMetrics(input: { itemId: string; salePrice: number }): Promise<PriceMetrics>;
-  getCurrentSalePrice(itemId: string): Promise<number>;
+  getMetrics(input: PriceMetricsInput): Promise<PriceMetrics>;
 }

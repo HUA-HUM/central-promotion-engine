@@ -101,7 +101,7 @@ export class NestMercadolibreApiRepository implements MercadolibreApiRepository 
       itemId: detail.id,
       sku: detail.sellerSku,
       categoryId: detail.categoryId,
-      listingInfo: detail.listingInfo ?? 'gold_special', // gold_special, gold_pro, silver, free, etc
+      listingTypeId: detail.listingTypeId,
       price: detail.price,
     };
   }

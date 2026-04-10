@@ -113,10 +113,17 @@ export class SyncAllPromotions {
     input: SyncAllPromotionsInput,
   ): Promise<Promotion> {
     const detail = await this.builder.mercadolibreApiRepository.getItemDetail(eligibleItem.itemId);
+    if (!detail.categoryId) {
+      throw new Error(`Missing categoryId for item ${eligibleItem.itemId}`);
+    }
     const suggestedPrice = eligibleItem.suggestedPrice ?? detail.price ?? 0;
     const metrics = await this.builder.priceApiRepository.getMetrics({
       itemId: eligibleItem.itemId,
+      sku: detail.sku,
+      categoryId: detail.categoryId,
+      publicationType: detail.listingTypeId,
       salePrice: suggestedPrice,
+      meliContributionPercentage: eligibleItem.meliPercentage,
     });
 
     const now = new Date();
@@ -129,7 +136,7 @@ export class SyncAllPromotions {
       offerId: eligibleItem.offerId,
       sku: detail.sku,
       categoryId: detail.categoryId,
-      listingInfo: detail.listingInfo,
+      listingTypeId: detail.listingTypeId,
       prices: {
         originalPrice: eligibleItem.originalPrice,
         minPrice: eligibleItem.minPrice,

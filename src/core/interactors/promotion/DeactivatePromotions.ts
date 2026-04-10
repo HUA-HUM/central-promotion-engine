@@ -29,12 +29,20 @@ export class DeactivatePromotions {
 
     for (const promotion of promotions) {
       try {
-        const currentSalePrice = await this.builder.priceApiRepository.getCurrentSalePrice(
-          promotion.itemId,
-        );
+        const detail = await this.builder.mercadolibreApiRepository.getItemDetail(promotion.itemId);
+        const categoryId = detail.categoryId ?? promotion.categoryId;
+        if (!categoryId) {
+          throw new Error(`Missing categoryId for item ${promotion.itemId}`);
+        }
+        const currentSalePrice = detail.price ?? promotion.prices.originalPrice ?? 0;
         const currentMetrics = await this.builder.priceApiRepository.getMetrics({
           itemId: promotion.itemId,
+          sku: detail.sku ?? promotion.sku,
+          categoryId,
+          publicationType: detail.listingTypeId,
           salePrice: currentSalePrice,
+          meliContributionPercentage:
+            promotion.terms?.resignation?.mercadolibre?.percentage,
         });
 
         const updatedPromotion: Promotion = {

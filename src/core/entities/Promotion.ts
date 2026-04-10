@@ -104,14 +104,14 @@ export class Promotion {
   @Prop()
   offerId?: string;
 
-  @Prop()
-  sku?: string;
+  @Prop({ required: true })
+  sku!: string;
 
-  @Prop()
-  listingInfo?: string;
+  @Prop({ required: true })
+  listingTypeId!: string;
 
-  @Prop()
-  categoryId?: string;
+  @Prop({ required: true })
+  categoryId!: string;
 
   @Prop({ type: PromotionPrices, default: {} })
   prices!: PromotionPrices;
