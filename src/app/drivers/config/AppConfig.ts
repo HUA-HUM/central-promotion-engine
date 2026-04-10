@@ -5,6 +5,7 @@ export interface AppConfig {
   campaignMlaApiBaseUrl: string;
   campaignMlaApiTimeout: number;
   campaignMlaApiToken?: string;
+  syncPromotionTypes: string[];
   mercadolibreApiBaseUrl: string;
   mercadolibreApiTimeout: number;
   mercadolibreApiToken?: string;

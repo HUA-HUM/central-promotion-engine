@@ -28,7 +28,10 @@ export class SyncAllPromotions {
   constructor(private readonly builder: SyncAllPromotionsBuilder) {}
 
   async execute(input: SyncAllPromotionsInput): Promise<ProcessResult> {
-    const promotionCatalogs = await this.builder.mercadolibreApiRepository.getPromotions();
+    const promotionCatalogs = (await this.builder.mercadolibreApiRepository.getPromotions())
+      .filter((promotionCatalog) =>
+        this.builder.config.syncPromotionTypes.includes(promotionCatalog.type),
+      );
     await this.builder.saveAllPromotion.saveCatalogs(promotionCatalogs);
     let success = 0;
     let failure = 0;
@@ -89,25 +92,11 @@ export class SyncAllPromotions {
           success += consolidated.length;
         }
 
-        const skippedCount = eligibleItems.length - enabledEligibleItems.length;
-        if (skippedCount > 0) {
-          Logger.info(
-            JSON.stringify({
-              message: 'MLAs skipped because they are not enabled for campaigns',
-              process: 'sync',
-              sourceProcess: input.sourceProcess,
-              promotionId: promotionCatalog.promotionId,
-              skipped: skippedCount,
-            }),
-          );
-        }
-
         console.log(`Processed promotion ${promotionCatalog.promotionId} page, success: ${success}, failure: ${failure}`);
 
         searchAfter = response.paging?.searchAfter;
       } while (searchAfter);
     }
-
 
     return {
       process: 'sync',

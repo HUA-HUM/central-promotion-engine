@@ -14,6 +14,7 @@ export class AppConfigService {
       campaignMlaApiBaseUrl: this.configService.getOrThrow<string>('CAMPAIGN_MLA_API_BASE_URL'),
       campaignMlaApiTimeout: this.configService.get<number>('CAMPAIGN_MLA_API_TIMEOUT', 10000),
       campaignMlaApiToken: this.configService.get<string>('CAMPAIGN_MLA_API_TOKEN'),
+      syncPromotionTypes: this.configService.get<string>('SYNC_PROMOTION_TYPES', 'PRE_NEGOTIATED,DEAL,SMART').split(','),
       mercadolibreApiBaseUrl: this.configService.getOrThrow<string>('MERCADOLIBRE_API_BASE_URL'),
       mercadolibreApiTimeout: this.configService.get<number>('MERCADOLIBRE_API_TIMEOUT', 10000),
       mercadolibreApiToken: this.configService.get<string>('MERCADOLIBRE_API_TOKEN'),

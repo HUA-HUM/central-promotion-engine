@@ -34,18 +34,18 @@ export class NestCampaignMlaApiRepository implements CampaignMlaApiRepository {
           headers: this.headers(config.campaignMlaApiToken),
         }),
       );
-      loggerInfo({
-        config: {
-          method: 'POST',
-          url,
-          headers: this.headers(config.campaignMlaApiToken),
-          data: body,
-          message: 'campaign-mla-api request completed',
-          services: 'campaign-mla-api',
-          status: response.status,
-          response: response.data,
-        },
-      });
+    //   loggerInfo({
+    //     config: {
+    //       method: 'POST',
+    //       url,
+    //       headers: this.headers(config.campaignMlaApiToken),
+    //       data: body,
+    //       message: 'campaign-mla-api request completed',
+    //       services: 'campaign-mla-api',
+    //       status: response.status,
+    //       response: response.data,
+    //     },
+    //   });
       return response.data;
     } catch (error) {
       loggerError(error, body, url, 'campaign-mla-api');
