@@ -2,6 +2,9 @@ export interface AppConfig {
   port: number;
   serviceName: string;
   mongoUrl: string;
+  campaignMlaApiBaseUrl: string;
+  campaignMlaApiTimeout: number;
+  campaignMlaApiToken?: string;
   mercadolibreApiBaseUrl: string;
   mercadolibreApiTimeout: number;
   mercadolibreApiToken?: string;

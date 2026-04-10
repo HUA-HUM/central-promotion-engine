@@ -43,6 +43,7 @@ export interface MeliEligibleItem {
   price?: number;
   meli_percentage?: number;
   seller_percentage?: number;
+  // PRE_NEGOTIATED
 }
 
 

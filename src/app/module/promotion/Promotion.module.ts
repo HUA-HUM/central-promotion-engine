@@ -2,6 +2,7 @@ import { HttpModule } from '@nestjs/axios';
 import { Module } from '@nestjs/common';
 import { PromotionsController } from '@app/controller/promotions/PromotionsController';
 import { AppConfigService } from '@app/drivers/config/AppConfigService';
+import { NestCampaignMlaApiRepository } from '@app/drivers/NestCampaignMlaApiRepository';
 import { NestMercadolibreApiRepository } from '@app/drivers/NestMercadolibreApiRepository';
 import { NestPriceApiRepository } from '@app/drivers/NestPriceApiRepository';
 import { MongoPromotionRepository } from '@app/drivers/repositories/mongo/MongoPromotionRepository';
@@ -19,6 +20,7 @@ import { SyncAllPromotions } from '@core/interactors/promotion/SyncAllPromotions
   providers: [
     AppConfigService,
     MongoPromotionRepository,
+    NestCampaignMlaApiRepository,
     NestMercadolibreApiRepository,
     NestPriceApiRepository,
     PromotionAutomationService,
@@ -41,18 +43,21 @@ import { SyncAllPromotions } from '@core/interactors/promotion/SyncAllPromotions
     {
       provide: 'SyncAllPromotions',
       useFactory: async (
+        campaignMlaApiRepository: NestCampaignMlaApiRepository,
         mercadolibreApiRepository: NestMercadolibreApiRepository,
         priceApiRepository: NestPriceApiRepository,
         saveAllPromotion: SaveAllPromotion,
         configService: AppConfigService,
       ) =>
         new SyncAllPromotions({
+          campaignMlaApiRepository,
           mercadolibreApiRepository,
           priceApiRepository,
           saveAllPromotion,
           config: configService.get(),
         }),
       inject: [
+        NestCampaignMlaApiRepository,
         NestMercadolibreApiRepository,
         NestPriceApiRepository,
         'SaveAllPromotion',

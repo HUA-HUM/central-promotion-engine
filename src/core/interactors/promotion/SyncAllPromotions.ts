@@ -1,4 +1,5 @@
 import { AppConfig } from '@app/drivers/config/AppConfig';
+import { CampaignMlaApiRepository } from '@core/adapters/repositories/ICampaignMlaApiRepository';
 import {
   EligibleItem,
   MercadolibreApiRepository,
@@ -16,6 +17,7 @@ export interface SyncAllPromotionsInput {
 }
 
 export interface SyncAllPromotionsBuilder {
+  campaignMlaApiRepository: CampaignMlaApiRepository;
   mercadolibreApiRepository: MercadolibreApiRepository;
   priceApiRepository: PriceApiRepository;
   saveAllPromotion: SaveAllPromotion;
@@ -44,7 +46,21 @@ export class SyncAllPromotions {
         const consolidated: Promotion[] = [];
         const eligibleItems = response.results ?? [];
 
-        for (const item of eligibleItems) {
+        if (eligibleItems.length === 0) {
+          searchAfter = response.paging?.searchAfter;
+          continue;
+        }
+
+        const mlas = eligibleItems.map((item) => item.itemId);
+        const existingMlasResponse = await this.builder.campaignMlaApiRepository.existsBulk(mlas);
+        const existingMlas = new Set(
+          (existingMlasResponse.items ?? [])
+            .filter((item) => item.exists)
+            .map((item) => item.mla),
+        );
+
+        const enabledEligibleItems = eligibleItems.filter((item) => existingMlas.has(item.itemId));
+        for (const item of enabledEligibleItems) {
           try {
             const promotion = await this.buildPromotion(
               promotionCatalog,
@@ -71,6 +87,19 @@ export class SyncAllPromotions {
         if (consolidated.length > 0) {
           await this.builder.saveAllPromotion.saveAll(consolidated);
           success += consolidated.length;
+        }
+
+        const skippedCount = eligibleItems.length - enabledEligibleItems.length;
+        if (skippedCount > 0) {
+          Logger.info(
+            JSON.stringify({
+              message: 'MLAs skipped because they are not enabled for campaigns',
+              process: 'sync',
+              sourceProcess: input.sourceProcess,
+              promotionId: promotionCatalog.promotionId,
+              skipped: skippedCount,
+            }),
+          );
         }
 
         console.log(`Processed promotion ${promotionCatalog.promotionId} page, success: ${success}, failure: ${failure}`);
