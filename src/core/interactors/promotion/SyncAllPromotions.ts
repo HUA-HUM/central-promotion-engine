@@ -5,7 +5,7 @@ import { PriceApiRepository } from '@core/adapters/repositories/IPriceApiReposit
 import { ProcessResult } from '@core/adapters/dto/ProcessResult';
 import { Logger } from '@core/drivers/logger/Logger';
 import { Promotion } from '@core/entities/Promotion';
-import { PromotionType } from '@core/entities/PromotionCatalog';
+import { PromotionCatalog, PromotionType } from '@core/entities/PromotionCatalog';
 import { DealPromotionBuilder } from '@core/interactors/promotion/builders/DealPromotionBuilder';
 import { PreNegotiatedPromotionBuilder } from '@core/interactors/promotion/builders/PreNegotiatedPromotionBuilder';
 import {
@@ -62,6 +62,16 @@ export class SyncAllPromotions {
       .filter((promotionCatalog) =>
         this.builder.config.syncPromotionTypes.includes(promotionCatalog.type),
       );
+    return this.syncPromotionCatalogs(promotionCatalogs, input, 'sync');
+  }
+
+  async syncPromotionCatalogs(
+    promotionCatalogs: PromotionCatalog[],
+    input: SyncAllPromotionsInput,
+    processName: string,
+  ): Promise<ProcessResult> {
+    this.initializePromotionBuilders();
+
     await this.builder.saveAllPromotion.saveCatalogs(promotionCatalogs);
     let success = 0;
     let failure = 0;
@@ -113,7 +123,7 @@ export class SyncAllPromotions {
             Logger.error(
               JSON.stringify({
                 message: 'Promotion sync item failed',
-                process: 'sync',
+                process: processName,
                 sourceProcess: input.sourceProcess,
                 itemId: item.itemId,
                 promotionId: promotionCatalog.promotionId,
@@ -135,7 +145,7 @@ export class SyncAllPromotions {
     }
 
     return {
-      process: 'sync',
+      process: processName,
       total: success + failure,
       success,
       failure,

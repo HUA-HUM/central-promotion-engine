@@ -13,6 +13,7 @@ import { DeactivatePromotions } from '@core/interactors/promotion/DeactivateProm
 import { GetPromotions } from '@core/interactors/promotion/GetPromotions';
 import { SaveAllPromotion } from '@core/interactors/promotion/SaveAllPromotion';
 import { SyncAllPromotions } from '@core/interactors/promotion/SyncAllPromotions';
+import { SyncOnePromotion } from '@core/interactors/promotion/SyncOnePromotion';
 
 @Module({
   imports: [HttpModule, MongoModule],
@@ -62,6 +63,21 @@ import { SyncAllPromotions } from '@core/interactors/promotion/SyncAllPromotions
         NestPriceApiRepository,
         'SaveAllPromotion',
         AppConfigService,
+      ],
+    },
+    {
+      provide: 'SyncOnePromotion',
+      useFactory: async (
+        mercadolibreApiRepository: NestMercadolibreApiRepository,
+        syncAllPromotions: SyncAllPromotions,
+      ) =>
+        new SyncOnePromotion({
+          mercadolibreApiRepository,
+          syncAllPromotions,
+        }),
+      inject: [
+        NestMercadolibreApiRepository,
+        'SyncAllPromotions',
       ],
     },
     {
