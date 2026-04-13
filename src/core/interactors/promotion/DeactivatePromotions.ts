@@ -22,6 +22,15 @@ export class DeactivatePromotions {
   constructor(private readonly builder: DeactivatePromotionsBuilder) {}
 
   async execute(input: DeactivatePromotionsInput): Promise<ProcessResult> {
+    Logger.info(
+      JSON.stringify({
+        message: 'Promotion deactivation process started',
+        process: 'deactivate',
+        sourceProcess: input.sourceProcess,
+        updatedBy: input.updatedBy,
+      }),
+    );
+
     const promotions = await this.builder.promotionRepository.findActive();
     let success = 0;
     let failure = 0;
@@ -57,6 +66,8 @@ export class DeactivatePromotions {
             profit: currentMetrics.profit ?? promotion.economics.profit,
             profitability: currentMetrics.profitability ?? promotion.economics.profitability,
             margin: currentMetrics.margin ?? promotion.economics.margin,
+            profitable: currentMetrics.profitable ?? promotion.economics.profitable,
+            shouldPause: currentMetrics.shouldPause ?? promotion.economics.shouldPause,
           },
         };
 
@@ -67,12 +78,12 @@ export class DeactivatePromotions {
         }
 
         const action = promotion.offerId ? 'pause' : 'delete';
-        await this.builder.mercadolibreApiRepository.pauseOrDeletePromotion({
-          promotionId: promotion.promotionId,
-          itemId: promotion.itemId,
-          offerId: promotion.offerId,
-          action,
-        });
+        // await this.builder.mercadolibreApiRepository.pauseOrDeletePromotion({
+        //   promotionId: promotion.promotionId,
+        //   itemId: promotion.itemId,
+        //   offerId: promotion.offerId,
+        //   action,
+        // });
 
         await this.builder.promotionRepository.update({
           ...updatedPromotion,
@@ -132,16 +143,39 @@ export class DeactivatePromotions {
       }
     }
 
-    return {
+    const result: ProcessResult = {
       process: 'deactivate',
       total: promotions.length,
       success,
       failure,
       skipped,
     };
+
+    Logger.info(
+      JSON.stringify({
+        message: 'Promotion deactivation process finished',
+        process: result.process,
+        sourceProcess: input.sourceProcess,
+        updatedBy: input.updatedBy,
+        total: result.total,
+        success: result.success,
+        failure: result.failure,
+        skipped: result.skipped,
+      }),
+    );
+
+    return result;
   }
 
   private stillMeetsRules(promotion: Promotion): boolean {
+    if (promotion.economics.shouldPause === true) {
+      return false;
+    }
+
+    if (promotion.economics.profitable === false) {
+      return false;
+    }
+
     const profitability = promotion.economics.profitability ?? Number.NEGATIVE_INFINITY;
     const profit = promotion.economics.profit ?? Number.NEGATIVE_INFINITY;
     const minAllowed = this.builder.config.defaultMinProfitability;

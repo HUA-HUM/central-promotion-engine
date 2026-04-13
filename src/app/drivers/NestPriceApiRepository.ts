@@ -16,6 +16,10 @@ interface PriceApiGetProfitResponse {
     profitabilityPercent?: number;
     marginPercent?: number;
   };
+  status?: {
+    profitable?: boolean;
+    shouldPause?: boolean;
+  };
 }
 
 @Injectable()
@@ -34,12 +38,14 @@ export class NestPriceApiRepository implements PriceApiRepository {
       salePrice: input.salePrice,
       meliContributionPercentage: input.meliContributionPercentage ?? 0,
     });
-    
+
     return {
       cost: response.economics?.cost,
       profit: response.economics?.profitAmount,
-      profitability: this.percentToRatio(response.economics?.profitabilityPercent),
-      margin: this.percentToRatio(response.economics?.marginPercent),
+      profitability: response.economics?.profitabilityPercent,
+      margin: response.economics?.marginPercent,
+      profitable: response.status?.profitable,
+      shouldPause: response.status?.shouldPause,
     };
   }
 
@@ -78,12 +84,5 @@ export class NestPriceApiRepository implements PriceApiRepository {
       'Content-Type': 'application/json',
       ...(apiToken ? { 'x-api-key': apiToken } : {}),
     };
-  }
-
-  private percentToRatio(value?: number): number | undefined {
-    if (value === undefined || value === null) {
-      return undefined;
-    }
-    return value / 100;
   }
 }

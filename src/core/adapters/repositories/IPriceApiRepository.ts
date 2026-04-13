@@ -3,6 +3,8 @@ export interface PriceMetrics {
   profit?: number;
   profitability?: number;
   margin?: number;
+  profitable?: boolean;
+  shouldPause?: boolean;
 }
 
 export interface PriceMetricsInput {

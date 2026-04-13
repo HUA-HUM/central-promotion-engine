@@ -56,13 +56,37 @@ export class SyncAllPromotions {
   }
 
   async execute(input: SyncAllPromotionsInput): Promise<ProcessResult> {
+    Logger.info(
+      JSON.stringify({
+        message: 'Promotion sync process started',
+        process: 'sync',
+        sourceProcess: input.sourceProcess,
+        updatedBy: input.updatedBy,
+      }),
+    );
+
     this.initializePromotionBuilders();
 
     const promotionCatalogs = (await this.builder.mercadolibreApiRepository.getPromotions())
       .filter((promotionCatalog) =>
         this.builder.config.syncPromotionTypes.includes(promotionCatalog.type),
       );
-    return this.syncPromotionCatalogs(promotionCatalogs, input, 'sync');
+    const result = await this.syncPromotionCatalogs(promotionCatalogs, input, 'sync');
+
+    Logger.info(
+      JSON.stringify({
+        message: 'Promotion sync process finished',
+        process: result.process,
+        sourceProcess: input.sourceProcess,
+        updatedBy: input.updatedBy,
+        total: result.total,
+        success: result.success,
+        failure: result.failure,
+        skipped: result.skipped,
+      }),
+    );
+
+    return result;
   }
 
   async syncPromotionCatalogs(
@@ -99,6 +123,7 @@ export class SyncAllPromotions {
         const existingMlas = new Set(
           (existingMlasResponse.items ?? [])
             .filter((item) => item.exists)
+            .filter((item) => item.mla == 'MLA3164559094')
             .map((item) => item.mla),
         );
 

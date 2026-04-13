@@ -69,6 +69,8 @@ export class GenericPromotionBuilder implements PromotionBuilder {
         profit: metrics.profit,
         profitability: metrics.profitability,
         margin: metrics.margin,
+        profitable: metrics.profitable,
+        shouldPause: metrics.shouldPause,
       },
       metadata: {
         syncedAt: now,

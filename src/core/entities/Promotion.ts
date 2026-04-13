@@ -55,6 +55,12 @@ export class PromotionEconomics {
 
   @Prop()
   margin?: number;
+
+  @Prop()
+  profitable?: boolean;
+
+  @Prop()
+  shouldPause?: boolean;
 }
 
 @Schema({ _id: false })

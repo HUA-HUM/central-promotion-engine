@@ -20,6 +20,15 @@ export class ActivatePromotions {
   constructor(private readonly builder: ActivatePromotionsBuilder) {}
 
   async execute(input: ActivatePromotionsInput): Promise<ProcessResult> {
+    Logger.info(
+      JSON.stringify({
+        message: 'Promotion activation process started',
+        process: 'activate',
+        sourceProcess: input.sourceProcess,
+        updatedBy: input.updatedBy,
+      }),
+    );
+
     const promotions = await this.builder.promotionRepository.findPendingActivation();
 
     let success = 0;
@@ -33,18 +42,17 @@ export class ActivatePromotions {
       }
 
       try {
-        // const response = await this.builder.mercadolibreApiRepository.activatePromotion({
-        //   promotionId: promotion.promotionId,
-        //   promotionType: promotion.type,
-        //   itemId: promotion.itemId,
-        //   offerId: promotion.offerId,
-        // });
+        const response = await this.builder.mercadolibreApiRepository.activatePromotion({
+          promotionId: promotion.promotionId,
+          promotionType: promotion.type,
+          itemId: promotion.itemId,
+          offerId: promotion.offerId,
+        });
 
         const updatedPromotion: Promotion = {
           ...promotion,
           status: PromotionStatus.ACTIVE,
-          // offerId: response.offerId ?? promotion.offerId,
-          offerId: promotion.offerId,
+          offerId: response.offerId ?? promotion.offerId,
           metadata: {
             ...promotion.metadata,
             activatedAt: new Date(),
@@ -101,16 +109,39 @@ export class ActivatePromotions {
       }
     }
 
-    return {
+    const result: ProcessResult = {
       process: 'activate',
       total: promotions.length,
       success,
       failure,
       skipped,
     };
+
+    Logger.info(
+      JSON.stringify({
+        message: 'Promotion activation process finished',
+        process: result.process,
+        sourceProcess: input.sourceProcess,
+        updatedBy: input.updatedBy,
+        total: result.total,
+        success: result.success,
+        failure: result.failure,
+        skipped: result.skipped,
+      }),
+    );
+
+    return result;
   }
 
   private meetsProfitabilityRules(promotion: Promotion): boolean {
+    if (promotion.economics.shouldPause === true) {
+      return false;
+    }
+
+    if (promotion.economics.profitable === false) {
+      return false;
+    }
+
     const profitability = promotion.economics.profitability ?? Number.NEGATIVE_INFINITY;
     const profit = promotion.economics.profit ?? Number.NEGATIVE_INFINITY;
     const minAllowed = this.builder.config.defaultMinProfitability;
