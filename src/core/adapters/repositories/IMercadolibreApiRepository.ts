@@ -94,12 +94,13 @@ export interface MercadolibreApiRepository {
   getItemDetail(itemId: string): Promise<ItemDetail>;
   activatePromotion(command: {
     promotionId: string;
+    promotionType: string;
     itemId: string;
+    offerId?: string;
   }): Promise<{ offerId?: string; status: string }>;
   pauseOrDeletePromotion(command: {
     promotionId: string;
     itemId: string;
     offerId?: string;
-    action: 'pause' | 'delete';
   }): Promise<{ status: string }>;
 }

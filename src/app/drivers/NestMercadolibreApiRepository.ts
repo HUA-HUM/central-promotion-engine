@@ -108,18 +108,31 @@ export class NestMercadolibreApiRepository implements MercadolibreApiRepository 
 
   async activatePromotion(command: {
     promotionId: string;
+    promotionType: string;
     itemId: string;
+    offerId?: string;
   }): Promise<{ offerId?: string; status: string }> {
-    return this.post('/promotions/activate', command);
+    const response = await this.post<{ offer_id?: string; status: string }>(
+      `/meli/seller-promotions/items/${command.itemId}`,
+      {
+        promotion_id: command.promotionId,
+        promotion_type: command.promotionType,
+        offer_id: command.offerId,
+      },
+    );
+
+    return {
+      offerId: response.offer_id,
+      status: response.status,
+    };
   }
 
   async pauseOrDeletePromotion(command: {
     promotionId: string;
     itemId: string;
     offerId?: string;
-    action: 'pause' | 'delete';
   }): Promise<{ status: string }> {
-    return this.post('/promotions/deactivate', command);
+    return this.delete<{ status: string }>(`/meli/seller-promotions/items/${command.itemId}`);
   }
 
   private async get<T>(path: string): Promise<T> {
@@ -175,6 +188,34 @@ export class NestMercadolibreApiRepository implements MercadolibreApiRepository 
       return response.data;
     } catch (error) {
       loggerError(error, body, url, 'mercadolibre-api');
+      throw error;
+    }
+  }
+
+  private async delete<T>(path: string): Promise<T> {
+    const config = this.configService.get();
+    const url = `${config.mercadolibreApiBaseUrl}${path}`;
+    try {
+      const response = await firstValueFrom(
+        this.httpService.delete<T>(url, {
+          timeout: config.mercadolibreApiTimeout,
+          headers: this.headers(config.mercadolibreApiToken),
+        }),
+      );
+      loggerInfo({
+        config: {
+          method: 'DELETE',
+          url,
+          headers: this.headers(config.mercadolibreApiToken),
+          message: 'mercadolibre-api request completed',
+          services: 'mercadolibre-api',
+          status: response.status,
+          response: response.data,
+        },
+      });
+      return response.data;
+    } catch (error) {
+      loggerError(error, null, url, 'mercadolibre-api');
       throw error;
     }
   }
