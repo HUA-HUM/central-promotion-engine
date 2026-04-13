@@ -83,7 +83,7 @@ export class DeactivatePromotions {
             updatedBy: input.updatedBy,
             sourceProcess: input.sourceProcess,
             reason: 'Promotion no longer meets profitability rules',
-            statusReason: `Promotion ${action}d automatically`,
+            statusReason: `Promotion ${action} automatically`,
           },
           auditTrail: [
             ...updatedPromotion.auditTrail,

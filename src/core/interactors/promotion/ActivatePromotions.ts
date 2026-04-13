@@ -21,6 +21,7 @@ export class ActivatePromotions {
 
   async execute(input: ActivatePromotionsInput): Promise<ProcessResult> {
     const promotions = await this.builder.promotionRepository.findPendingActivation();
+
     let success = 0;
     let failure = 0;
     let skipped = 0;
@@ -32,15 +33,18 @@ export class ActivatePromotions {
       }
 
       try {
-        const response = await this.builder.mercadolibreApiRepository.activatePromotion({
-          promotionId: promotion.promotionId,
-          itemId: promotion.itemId,
-        });
+        // const response = await this.builder.mercadolibreApiRepository.activatePromotion({
+        //   promotionId: promotion.promotionId,
+        //   promotionType: promotion.type,
+        //   itemId: promotion.itemId,
+        //   offerId: promotion.offerId,
+        // });
 
         const updatedPromotion: Promotion = {
           ...promotion,
           status: PromotionStatus.ACTIVE,
-          offerId: response.offerId ?? promotion.offerId,
+          // offerId: response.offerId ?? promotion.offerId,
+          offerId: promotion.offerId,
           metadata: {
             ...promotion.metadata,
             activatedAt: new Date(),
@@ -61,7 +65,7 @@ export class ActivatePromotions {
 
         await this.builder.promotionRepository.update(updatedPromotion);
         success += 1;
-      } catch (error) {
+      } catch (error: unknown) {
         failure += 1;
         const reason = error instanceof Error ? error.message : 'Unknown activation error';
         await this.builder.promotionRepository.update({

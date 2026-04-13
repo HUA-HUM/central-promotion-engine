@@ -131,6 +131,7 @@ export class NestMercadolibreApiRepository implements MercadolibreApiRepository 
     promotionId: string;
     itemId: string;
     offerId?: string;
+    action: 'pause' | 'delete';
   }): Promise<{ status: string }> {
     return this.delete<{ status: string }>(`/meli/seller-promotions/items/${command.itemId}`);
   }

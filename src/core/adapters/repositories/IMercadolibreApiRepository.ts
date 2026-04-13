@@ -102,5 +102,6 @@ export interface MercadolibreApiRepository {
     promotionId: string;
     itemId: string;
     offerId?: string;
+    action: 'pause' | 'delete';
   }): Promise<{ status: string }>;
 }
