@@ -23,18 +23,34 @@ export class MongoPromotionRepository implements PromotionRepository {
     }
 
     await this.promotionModel.bulkWrite(
-      promotions.map((promotion) => ({
-        updateOne: {
-          filter: {
-            promotionId: promotion.promotionId,
-            itemId: promotion.itemId,
+      promotions.map((promotion) => {
+        const { auditTrail, ...promotionWithoutAuditTrail } = promotion;
+
+        return {
+          updateOne: {
+            filter: {
+              promotionId: promotion.promotionId,
+              itemId: promotion.itemId,
+            },
+            update: [
+              {
+                $set: promotionWithoutAuditTrail,
+              },
+              {
+                $set: {
+                  auditTrail: {
+                    $concatArrays: [
+                      { $ifNull: ['$auditTrail', []] },
+                      auditTrail ?? [],
+                    ],
+                  },
+                },
+              },
+            ],
+            upsert: true,
           },
-          update: {
-            $set: promotion,
-          },
-          upsert: true,
-        },
-      })),
+        };
+      }),
       { ordered: false },
     );
   }
@@ -77,12 +93,24 @@ export class MongoPromotionRepository implements PromotionRepository {
   }
 
   async update(promotion: Promotion): Promise<void> {
+    const { auditTrail, ...promotionWithoutAuditTrail } = promotion;
+    const latestAudit = auditTrail?.[auditTrail.length - 1];
+
     await this.promotionModel.updateOne(
       {
         promotionId: promotion.promotionId,
         itemId: promotion.itemId,
       },
-      { $set: promotion },
+      {
+        $set: promotionWithoutAuditTrail,
+        ...(latestAudit
+          ? {
+              $push: {
+                auditTrail: latestAudit,
+              },
+            }
+          : {}),
+      },
     );
   }
 
