@@ -22,12 +22,15 @@ export class DeactivatePromotions {
   constructor(private readonly builder: DeactivatePromotionsBuilder) {}
 
   async execute(input: DeactivatePromotionsInput): Promise<ProcessResult> {
+    const startedAt = new Date();
+
     Logger.info(
       JSON.stringify({
         message: 'Promotion deactivation process started',
         process: 'deactivate',
         sourceProcess: input.sourceProcess,
         updatedBy: input.updatedBy,
+        startedAt: startedAt.toISOString(),
       }),
     );
 
@@ -151,12 +154,20 @@ export class DeactivatePromotions {
       skipped,
     };
 
+    const finishedAt = new Date();
+    const durationMinutes = Number(
+      ((finishedAt.getTime() - startedAt.getTime()) / 60000).toFixed(2),
+    );
+
     Logger.info(
       JSON.stringify({
         message: 'Promotion deactivation process finished',
         process: result.process,
         sourceProcess: input.sourceProcess,
         updatedBy: input.updatedBy,
+        startedAt: startedAt.toISOString(),
+        finishedAt: finishedAt.toISOString(),
+        durationMinutes,
         total: result.total,
         success: result.success,
         failure: result.failure,

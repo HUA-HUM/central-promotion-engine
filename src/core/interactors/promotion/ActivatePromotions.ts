@@ -20,12 +20,15 @@ export class ActivatePromotions {
   constructor(private readonly builder: ActivatePromotionsBuilder) {}
 
   async execute(input: ActivatePromotionsInput): Promise<ProcessResult> {
+    const startedAt = new Date();
+
     Logger.info(
       JSON.stringify({
         message: 'Promotion activation process started',
         process: 'activate',
         sourceProcess: input.sourceProcess,
         updatedBy: input.updatedBy,
+        startedAt: startedAt.toISOString(),
       }),
     );
 
@@ -117,12 +120,20 @@ export class ActivatePromotions {
       skipped,
     };
 
+    const finishedAt = new Date();
+    const durationMinutes = Number(
+      ((finishedAt.getTime() - startedAt.getTime()) / 60000).toFixed(2),
+    );
+
     Logger.info(
       JSON.stringify({
         message: 'Promotion activation process finished',
         process: result.process,
         sourceProcess: input.sourceProcess,
         updatedBy: input.updatedBy,
+        startedAt: startedAt.toISOString(),
+        finishedAt: finishedAt.toISOString(),
+        durationMinutes,
         total: result.total,
         success: result.success,
         failure: result.failure,

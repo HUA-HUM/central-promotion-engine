@@ -56,12 +56,15 @@ export class SyncAllPromotions {
   }
 
   async execute(input: SyncAllPromotionsInput): Promise<ProcessResult> {
+    const startedAt = new Date();
+
     Logger.info(
       JSON.stringify({
         message: 'Promotion sync process started',
         process: 'sync',
         sourceProcess: input.sourceProcess,
         updatedBy: input.updatedBy,
+        startedAt: startedAt.toISOString(),
       }),
     );
 
@@ -73,12 +76,20 @@ export class SyncAllPromotions {
       );
     const result = await this.syncPromotionCatalogs(promotionCatalogs, input, 'sync');
 
+    const finishedAt = new Date();
+    const durationMinutes = Number(
+      ((finishedAt.getTime() - startedAt.getTime()) / 60000).toFixed(2),
+    );
+
     Logger.info(
       JSON.stringify({
         message: 'Promotion sync process finished',
         process: result.process,
         sourceProcess: input.sourceProcess,
         updatedBy: input.updatedBy,
+        startedAt: startedAt.toISOString(),
+        finishedAt: finishedAt.toISOString(),
+        durationMinutes,
         total: result.total,
         success: result.success,
         failure: result.failure,
@@ -123,7 +134,7 @@ export class SyncAllPromotions {
         const existingMlas = new Set(
           (existingMlasResponse.items ?? [])
             .filter((item) => item.exists)
-            .filter((item) => item.mla == 'MLA3164559094')
+            // .filter((item) => item.mla == 'MLA3164559094')
             .map((item) => item.mla),
         );
 
