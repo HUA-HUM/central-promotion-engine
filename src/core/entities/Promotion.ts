@@ -123,7 +123,7 @@ export class Promotion {
   auditTrail!: PromotionAudit[];
 
   @Prop({ type: Terms, default: {} })
-  terms!: Terms;
+  terms?: Terms;
 }
 
 export const PromotionSchema = SchemaFactory.createForClass(Promotion);

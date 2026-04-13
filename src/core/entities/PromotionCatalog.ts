@@ -10,7 +10,6 @@ export enum PromotionType {
   DEAL = 'DEAL',
   SMART = 'SMART',
   PRE_NEGOTIATED = 'PRE_NEGOTIATED',
-  CUSTOM = 'CUSTOM',
   UNKNOWN = 'UNKNOWN',
 }
 

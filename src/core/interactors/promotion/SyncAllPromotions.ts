@@ -1,14 +1,19 @@
 import { AppConfig } from '@app/drivers/config/AppConfig';
 import { CampaignMlaApiRepository } from '@core/adapters/repositories/ICampaignMlaApiRepository';
-import {
-  EligibleItem,
-  MercadolibreApiRepository,
-} from '@core/adapters/repositories/IMercadolibreApiRepository';
+import { MercadolibreApiRepository } from '@core/adapters/repositories/IMercadolibreApiRepository';
 import { PriceApiRepository } from '@core/adapters/repositories/IPriceApiRepository';
 import { ProcessResult } from '@core/adapters/dto/ProcessResult';
 import { Logger } from '@core/drivers/logger/Logger';
-import { Promotion, PromotionStatus } from '@core/entities/Promotion';
-import { PromotionCatalog, PromotionType } from '@core/entities/PromotionCatalog';
+import { Promotion } from '@core/entities/Promotion';
+import { PromotionType } from '@core/entities/PromotionCatalog';
+import { DealPromotionBuilder } from '@core/interactors/promotion/builders/DealPromotionBuilder';
+import { PreNegotiatedPromotionBuilder } from '@core/interactors/promotion/builders/PreNegotiatedPromotionBuilder';
+import {
+  GenericPromotionBuilder,
+  PromotionBuilder,
+  PromotionBuilderInput,
+} from '@core/interactors/promotion/builders/PromotionBuilder';
+import { SmartPromotionBuilder } from '@core/interactors/promotion/builders/SmartPromotionBuilder';
 import { SaveAllPromotion } from '@core/interactors/promotion/SaveAllPromotion';
 
 export interface SyncAllPromotionsInput {
@@ -25,9 +30,34 @@ export interface SyncAllPromotionsBuilder {
 }
 
 export class SyncAllPromotions {
+  private readonly promotionBuilders = new Map<PromotionType, PromotionBuilder>();
+  private genericPromotionBuilder?: GenericPromotionBuilder;
+
   constructor(private readonly builder: SyncAllPromotionsBuilder) {}
 
+  private initializePromotionBuilders(): void {
+    if (this.promotionBuilders.size > 0) {
+      return;
+    }
+
+    const builders: PromotionBuilder[] = [
+      new DealPromotionBuilder({ priceApiRepository: this.builder.priceApiRepository }),
+      new SmartPromotionBuilder({ priceApiRepository: this.builder.priceApiRepository }),
+      new PreNegotiatedPromotionBuilder({ priceApiRepository: this.builder.priceApiRepository }),
+    ];
+
+    this.genericPromotionBuilder = new GenericPromotionBuilder({
+      priceApiRepository: this.builder.priceApiRepository,
+    });
+
+    for (const promotionBuilder of builders) {
+      this.promotionBuilders.set(promotionBuilder.type, promotionBuilder);
+    }
+  }
+
   async execute(input: SyncAllPromotionsInput): Promise<ProcessResult> {
+    this.initializePromotionBuilders();
+
     const promotionCatalogs = (await this.builder.mercadolibreApiRepository.getPromotions())
       .filter((promotionCatalog) =>
         this.builder.config.syncPromotionTypes.includes(promotionCatalog.type),
@@ -65,11 +95,17 @@ export class SyncAllPromotions {
         const enabledEligibleItems = eligibleItems.filter((item) => existingMlas.has(item.itemId));
         for (const item of enabledEligibleItems) {
           try {
-            const promotion = await this.buildPromotion(
+            const detail = await this.builder.mercadolibreApiRepository.getItemDetail(item.itemId);
+            if (!detail.categoryId) {
+              throw new Error(`Missing categoryId for item ${item.itemId}`);
+            }
+
+            const promotion = await this.buildPromotion({
               promotionCatalog,
-              item,
+              eligibleItem: item,
+              itemDetail: detail,
               input,
-            );
+            });
             consolidated.push(promotion);
           } catch (error) {
             failure += 1;
@@ -107,80 +143,14 @@ export class SyncAllPromotions {
     };
   }
 
-  private async buildPromotion(
-    promotionCatalog: PromotionCatalog,
-    eligibleItem: EligibleItem,
-    input: SyncAllPromotionsInput,
-  ): Promise<Promotion> {
-    const detail = await this.builder.mercadolibreApiRepository.getItemDetail(eligibleItem.itemId);
-    if (!detail.categoryId) {
-      throw new Error(`Missing categoryId for item ${eligibleItem.itemId}`);
-    }
-    const suggestedPrice = eligibleItem.suggestedPrice ?? detail.price ?? 0;
-    const metrics = await this.builder.priceApiRepository.getMetrics({
-      itemId: eligibleItem.itemId,
-      sku: detail.sku,
-      categoryId: detail.categoryId,
-      publicationType: detail.listingTypeId,
-      salePrice: suggestedPrice,
-      meliContributionPercentage: eligibleItem.meliPercentage,
-    });
+  private async buildPromotion(command: PromotionBuilderInput): Promise<Promotion> {
+    const promotionBuilder =
+      this.promotionBuilders.get(command.promotionCatalog.type) ?? this.genericPromotionBuilder;
 
-    const now = new Date();
-    return {
-      itemId: eligibleItem.itemId,
-      promotionId: promotionCatalog.promotionId,
-      name: promotionCatalog.name,
-      type: promotionCatalog.type,
-      status: PromotionStatus.SYNCED,
-      offerId: eligibleItem.offerId,
-      sku: detail.sku,
-      categoryId: detail.categoryId,
-      listingTypeId: detail.listingTypeId,
-      prices: {
-        originalPrice: eligibleItem.originalPrice,
-        minPrice: eligibleItem.minPrice,
-        maxPrice: eligibleItem.maxPrice,
-        suggestedPrice: eligibleItem.suggestedPrice,
-      },
-      economics: {
-        cost: metrics.cost,
-        profit: metrics.profit,
-        profitability: metrics.profitability,
-        margin: metrics.margin,
-      },
-      metadata: {
-        syncedAt: now,
-        updatedBy: input.updatedBy,
-        sourceProcess: input.sourceProcess,
-        statusReason: 'Promotion synchronized',
-      },
-      auditTrail: [
-        {
-          process: input.sourceProcess,
-          status: PromotionStatus.SYNCED,
-          executedAt: now,
-          reason: 'Promotion synchronized',
-        },
-      ],
-      terms: {
-        resignation: {
-            mercadolibre: {
-              percentage: eligibleItem.meliPercentage,
-              amount: eligibleItem.originalPrice * (eligibleItem.meliPercentage ?? 0) / 100,
-            },
-            seller: {
-              percentage: eligibleItem.sellerPercentage,
-              amount: eligibleItem.originalPrice * (eligibleItem.sellerPercentage ?? 0) / 100,
-            },
-            total: (eligibleItem.meliPercentage ?? 0) + (eligibleItem.sellerPercentage ?? 0),
-        },
-        pvp: {
-          current: {},
-          revenue: {},
-          store: {},
-        },
-      },
-    };
+    if (!promotionBuilder) {
+      throw new Error('No generic promotion builder configured');
+    }
+
+    return promotionBuilder.build(command);
   }
 }
