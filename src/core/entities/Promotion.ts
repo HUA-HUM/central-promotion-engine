@@ -90,10 +90,10 @@ export class PromotionMetadata {
 
 @Schema({ collection: 'promotions', timestamps: true })
 export class Promotion {
-  @Prop({ required: true, index: true })
+  @Prop({ required: true })
   itemId!: string;
 
-  @Prop({ required: true, unique: true, index: true})
+  @Prop({ required: true })
   promotionId!: string;
 
   @Prop({ required: true })
@@ -102,7 +102,7 @@ export class Promotion {
   @Prop({ required: true, enum: PromotionType })
   type!: PromotionType;
   
-  @Prop({ required: true, enum: PromotionStatus, index: true })
+  @Prop({ required: true, enum: PromotionStatus })
   status!: PromotionStatus;
 
   @Prop()
@@ -143,3 +143,5 @@ export class Promotion {
 }
 
 export const PromotionSchema = SchemaFactory.createForClass(Promotion);
+
+PromotionSchema.index({ promotionId: 1, itemId: 1 });

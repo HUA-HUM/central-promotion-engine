@@ -29,9 +29,11 @@ export class NestMercadolibreApiRepository implements MercadolibreApiRepository 
       limit: pagination.limit.toString(),
       offset: pagination.offset.toString(),
     }));
-    // TODO: Implementar lógica de paginación utilizando res.paging, pendiente arreglar la meli api primero
-    res.results.forEach((promotion) => {
-      promotionCatalogs.push({
+    // TODO: Implementar lógica de paginación utilizando res.paging
+    const promotionPromises = res.results.map(async (promotion) => {
+      const itemsPaginated = await this.getElegibleItemsPaginated(promotion.id, promotion.type);
+
+      return {
         promotionId: promotion.id,
         type: promotion.type,
         status: promotion.status,
@@ -42,15 +44,17 @@ export class NestMercadolibreApiRepository implements MercadolibreApiRepository 
         subType: promotion.sub_type,
         fixedAmount: promotion.fixed_amount,
         minPurchaseAmount: promotion.min_purchase_amount,
-      });
+        totalCandidates: itemsPaginated.paging.total,
+      };
     });
+    const promotionResults = await Promise.all(promotionPromises);
+    promotionCatalogs.push(...promotionResults);
     return promotionCatalogs;
   }
 
   async getEligibleItems(promotionId: string, promotionType: string): Promise<EligibleItem[]> {
     try {
       const response = await this.get<MeliPaginatedResponse<EligibleItem>>(`/meli/seller-promotions/${promotionId}/items?promotion_type=${promotionType}`);
-      // TODO: Implementar lógica de paginación utilizando response.paging
       return response.results;
     } catch (error) {
       console.log('catch error in getEligibleItems for promotionId', promotionId);

@@ -21,7 +21,7 @@ export class PromotionCatalog {
   @Prop({ enum: PromotionType, required: true })
   type!: PromotionType;
 
-  @Prop({ enum: PromotionCatalogStatus, index: true })
+  @Prop({ enum: PromotionCatalogStatus })
   status!: PromotionCatalogStatus;
 
   @Prop({ required: true })
@@ -44,6 +44,9 @@ export class PromotionCatalog {
 
   @Prop()
   deadlineDate?: Date;
+
+  @Prop()
+  totalCandidates?: number;
 }
 
 export const PromotionCatalogSchema = SchemaFactory.createForClass(PromotionCatalog);

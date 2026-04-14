@@ -59,6 +59,7 @@ export interface PromotionCatalog {
   promotionId: string;
   type: PromotionType;
   status: PromotionCatalogStatus;
+  totalCandidates?: number;
   startDate?: Date;
   finishDate?: Date;
   deadlineDate?: Date;
