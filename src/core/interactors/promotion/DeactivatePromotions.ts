@@ -81,16 +81,17 @@ export class DeactivatePromotions {
         }
 
         const action = promotion.offerId ? 'pause' : 'delete';
-        // await this.builder.mercadolibreApiRepository.pauseOrDeletePromotion({
-        //   promotionId: promotion.promotionId,
-        //   itemId: promotion.itemId,
-        //   offerId: promotion.offerId,
-        //   action,
-        // });
+        await this.builder.mercadolibreApiRepository.pauseOrDeletePromotion({
+          promotionId: promotion.promotionId,
+          itemId: promotion.itemId,
+          offerId: promotion.offerId,
+          action,
+        });
 
         await this.builder.promotionRepository.update({
           ...updatedPromotion,
-          status: action === 'pause' ? PromotionStatus.PAUSED : PromotionStatus.DELETED,
+          // status: action === 'pause' ? PromotionStatus.PAUSED : PromotionStatus.DELETED,
+          status: PromotionStatus.DELETED,
           metadata: {
             ...updatedPromotion.metadata,
             deactivatedAt: new Date(),
@@ -103,7 +104,8 @@ export class DeactivatePromotions {
             ...updatedPromotion.auditTrail,
             {
               process: input.sourceProcess,
-              status: action === 'pause' ? PromotionStatus.PAUSED : PromotionStatus.DELETED,
+              // status: action === 'pause' ? PromotionStatus.PAUSED : PromotionStatus.DELETED,
+              status: PromotionStatus.DELETED,
               reason: 'Current sale price no longer satisfies profitability rules',
               executedAt: new Date(),
             },
