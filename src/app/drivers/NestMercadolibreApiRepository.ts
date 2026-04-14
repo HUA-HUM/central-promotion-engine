@@ -35,9 +35,9 @@ export class NestMercadolibreApiRepository implements MercadolibreApiRepository 
         promotionId: promotion.id,
         type: promotion.type,
         status: promotion.status,
-        startDate: promotion.start_date,
-        finishDate: promotion.finish_date,
-        deadlineDate: promotion.deadline_date,
+        startDate: this.parseDate(promotion.start_date),
+        finishDate: this.parseDate(promotion.finish_date),
+        deadlineDate: this.parseDate(promotion.deadline_date),
         name: promotion.name,
         subType: promotion.sub_type,
         fixedAmount: promotion.fixed_amount,
@@ -134,6 +134,15 @@ export class NestMercadolibreApiRepository implements MercadolibreApiRepository 
     action: 'pause' | 'delete';
   }): Promise<{ status: string }> {
     return this.delete<{ status: string }>(`/meli/seller-promotions/items/${command.itemId}`);
+  }
+
+  private parseDate(rawDate?: string): Date | undefined {
+    if (!rawDate) {
+      return undefined;
+    }
+
+    const parsedDate = new Date(rawDate);
+    return Number.isNaN(parsedDate.getTime()) ? undefined : parsedDate;
   }
 
   private async get<T>(path: string): Promise<T> {

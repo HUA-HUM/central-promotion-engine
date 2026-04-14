@@ -22,9 +22,9 @@ export interface MeliPromotionCatalog {
   id: string;
   type: PromotionType;
   status: PromotionCatalogStatus;
-  start_date?: Date;
-  finish_date?: Date;
-  deadline_date?: Date;
+  start_date?: string;
+  finish_date?: string;
+  deadline_date?: string;
   sub_type?: string;
   fixed_amount?: number;
   min_purchase_amount?: number;

@@ -102,18 +102,21 @@ import { SyncOnePromotion } from '@core/interactors/promotion/SyncOnePromotion';
       provide: 'DeactivatePromotions',
       useFactory: async (
         promotionRepository: MongoPromotionRepository,
+        campaignMlaApiRepository: NestCampaignMlaApiRepository,
         mercadolibreApiRepository: NestMercadolibreApiRepository,
         priceApiRepository: NestPriceApiRepository,
         configService: AppConfigService,
       ) =>
         new DeactivatePromotions({
           promotionRepository,
+          campaignMlaApiRepository,
           mercadolibreApiRepository,
           priceApiRepository,
           config: configService.get(),
         }),
       inject: [
         MongoPromotionRepository,
+        NestCampaignMlaApiRepository,
         NestMercadolibreApiRepository,
         NestPriceApiRepository,
         AppConfigService,

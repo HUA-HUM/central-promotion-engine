@@ -7,6 +7,7 @@ export enum PromotionStatus {
   ACTIVE = 'ACTIVE',
   PAUSED = 'PAUSED',
   DELETED = 'DELETED',
+  FINISHED = 'FINISHED',
   FAILED_SYNC = 'FAILED_SYNC',
   FAILED_ACTIVATION = 'FAILED_ACTIVATION',
   FAILED_DEACTIVATION = 'FAILED_DEACTIVATION',
@@ -106,6 +107,15 @@ export class Promotion {
 
   @Prop()
   offerId?: string;
+
+  @Prop()
+  startDate?: Date;
+
+  @Prop()
+  finishDate?: Date;
+
+  @Prop()
+  deadlineDate?: Date;
 
   @Prop({ required: true })
   sku!: string;

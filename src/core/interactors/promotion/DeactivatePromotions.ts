@@ -1,6 +1,7 @@
 import { AppConfig } from '@app/drivers/config/AppConfig';
 import { ProcessResult } from '@core/adapters/dto/ProcessResult';
 import { Logger } from '@core/drivers/logger/Logger';
+import { CampaignMlaApiRepository } from '@core/adapters/repositories/ICampaignMlaApiRepository';
 import { MercadolibreApiRepository } from '@core/adapters/repositories/IMercadolibreApiRepository';
 import { PriceApiRepository } from '@core/adapters/repositories/IPriceApiRepository';
 import { PromotionRepository } from '@core/adapters/repositories/IPromotionRepository';
@@ -13,6 +14,7 @@ export interface DeactivatePromotionsInput {
 
 export interface DeactivatePromotionsBuilder {
   promotionRepository: PromotionRepository;
+  campaignMlaApiRepository: CampaignMlaApiRepository;
   mercadolibreApiRepository: MercadolibreApiRepository;
   priceApiRepository: PriceApiRepository;
   config: AppConfig;
@@ -35,12 +37,54 @@ export class DeactivatePromotions {
     );
 
     const promotions = await this.builder.promotionRepository.findActive();
+    const activeMlas = promotions.map((promotion) => promotion.itemId);
+    const existingMlasResponse = activeMlas.length
+      ? await this.builder.campaignMlaApiRepository.existsBulk(activeMlas)
+      : { items: [], total: 0 };
+    const existingMlas = new Set(
+      (existingMlasResponse.items ?? [])
+        .filter((item) => item.exists)
+        .map((item) => item.mla),
+    );
+
     let success = 0;
     let failure = 0;
     let skipped = 0;
 
     for (const promotion of promotions) {
       try {
+        if (this.isPromotionOutOfDate(promotion)) {
+          await this.markAs(
+            promotion,
+            PromotionStatus.FINISHED,
+            input,
+            'Promotion is outside valid date range',
+            'Promotion finished automatically because it is outside valid date range',
+          );
+          success += 1;
+          continue;
+        }
+
+        if (!existingMlas.has(promotion.itemId)) {
+          const action = promotion.offerId ? 'pause' : 'delete';
+          await this.builder.mercadolibreApiRepository.pauseOrDeletePromotion({
+            promotionId: promotion.promotionId,
+            itemId: promotion.itemId,
+            offerId: promotion.offerId,
+            action,
+          });
+
+          await this.markAs(
+            promotion,
+            PromotionStatus.DELETED,
+            input,
+            'Promotion item no longer exists in campaign repository',
+            `Promotion ${action} automatically because item is not in campaign repository`,
+          );
+          success += 1;
+          continue;
+        }
+
         const detail = await this.builder.mercadolibreApiRepository.getItemDetail(promotion.itemId);
         const categoryId = detail.categoryId ?? promotion.categoryId;
         if (!categoryId) {
@@ -88,29 +132,13 @@ export class DeactivatePromotions {
           action,
         });
 
-        await this.builder.promotionRepository.update({
-          ...updatedPromotion,
-          // status: action === 'pause' ? PromotionStatus.PAUSED : PromotionStatus.DELETED,
-          status: PromotionStatus.DELETED,
-          metadata: {
-            ...updatedPromotion.metadata,
-            deactivatedAt: new Date(),
-            updatedBy: input.updatedBy,
-            sourceProcess: input.sourceProcess,
-            reason: 'Promotion no longer meets profitability rules',
-            statusReason: `Promotion ${action} automatically`,
-          },
-          auditTrail: [
-            ...updatedPromotion.auditTrail,
-            {
-              process: input.sourceProcess,
-              // status: action === 'pause' ? PromotionStatus.PAUSED : PromotionStatus.DELETED,
-              status: PromotionStatus.DELETED,
-              reason: 'Current sale price no longer satisfies profitability rules',
-              executedAt: new Date(),
-            },
-          ],
-        });
+        await this.markAs(
+          updatedPromotion,
+          PromotionStatus.DELETED,
+          input,
+          'Current sale price no longer satisfies profitability rules',
+          `Promotion ${action} automatically`,
+        );
         success += 1;
       } catch (error) {
         failure += 1;
@@ -178,6 +206,47 @@ export class DeactivatePromotions {
     );
 
     return result;
+  }
+
+  private async markAs(
+    promotion: Promotion,
+    status: PromotionStatus.DELETED | PromotionStatus.FINISHED,
+    input: DeactivatePromotionsInput,
+    reason: string,
+    statusReason: string,
+  ): Promise<void> {
+    await this.builder.promotionRepository.update({
+      ...promotion,
+      status,
+      metadata: {
+        ...promotion.metadata,
+        deactivatedAt: new Date(),
+        updatedBy: input.updatedBy,
+        sourceProcess: input.sourceProcess,
+        reason,
+        statusReason,
+      },
+      auditTrail: [
+        ...promotion.auditTrail,
+        {
+          process: input.sourceProcess,
+          status,
+          reason,
+          executedAt: new Date(),
+        },
+      ],
+    });
+  }
+
+  private isPromotionOutOfDate(promotion: Promotion): boolean {
+    const now = new Date();
+    const finishDate = promotion.finishDate;
+
+    if (finishDate && now > finishDate) {
+      return true;
+    }
+
+    return false;
   }
 
   private stillMeetsRules(promotion: Promotion): boolean {

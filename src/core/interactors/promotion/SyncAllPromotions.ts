@@ -134,7 +134,6 @@ export class SyncAllPromotions {
         const existingMlas = new Set(
           (existingMlasResponse.items ?? [])
             .filter((item) => item.exists)
-            // .filter((item) => item.mla == 'MLA3164559094')
             .map((item) => item.mla),
         );
 
