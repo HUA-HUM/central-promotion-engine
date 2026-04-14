@@ -47,4 +47,3 @@ export class PromotionCatalog {
 }
 
 export const PromotionCatalogSchema = SchemaFactory.createForClass(PromotionCatalog);
-PromotionCatalogSchema.index({ promotionId: 1 }, { unique: true });

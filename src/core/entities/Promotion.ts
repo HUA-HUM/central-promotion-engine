@@ -92,7 +92,7 @@ export class Promotion {
   @Prop({ required: true, index: true })
   itemId!: string;
 
-  @Prop({ required: true })
+  @Prop({ required: true, unique: true, index: true})
   promotionId!: string;
 
   @Prop({ required: true })
@@ -133,4 +133,3 @@ export class Promotion {
 }
 
 export const PromotionSchema = SchemaFactory.createForClass(Promotion);
-PromotionSchema.index({ promotionId: 1, itemId: 1 }, { unique: true });
