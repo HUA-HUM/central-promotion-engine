@@ -23,36 +23,56 @@ export class MongoPromotionRepository implements PromotionRepository {
     }
 
     await this.promotionModel.bulkWrite(
-      promotions.map((promotion) => {
-        const { auditTrail, ...promotionWithoutAuditTrail } = promotion;
-
-        return {
-          updateOne: {
-            filter: {
-              promotionId: promotion.promotionId,
-              itemId: promotion.itemId,
-            },
-            update: [
-              {
-                $set: promotionWithoutAuditTrail,
-              },
-              {
-                $set: {
-                  auditTrail: {
-                    $concatArrays: [
-                      { $ifNull: ['$auditTrail', []] },
-                      auditTrail ?? [],
-                    ],
-                  },
-                },
-              },
-            ],
-            upsert: true,
-          },
-        };
-      }),
+      promotions.map((promotion) => this.buildPromotionUpsertOperation(promotion)),
       { ordered: false },
     );
+  }
+
+  private buildPromotionUpsertOperation(promotion: Promotion) {
+    const {
+      auditTrail: incomingAuditTrail = [],
+      status: incomingStatus,
+      ...fieldsToSet
+    } = promotion;
+
+    // If a promotion is already ACTIVE in DB, keep it ACTIVE during sync updates.
+    const resolvedStatus = {
+      $cond: [
+        { $eq: ['$status', PromotionStatus.ACTIVE] },
+        '$status',
+        incomingStatus,
+      ],
+    };
+
+    return {
+      updateOne: {
+        filter: {
+          promotionId: promotion.promotionId,
+          itemId: promotion.itemId,
+        },
+        update: [
+          {
+            $set: fieldsToSet,
+          },
+          {
+            $set: {
+              status: resolvedStatus,
+            },
+          },
+          {
+            $set: {
+              auditTrail: {
+                $concatArrays: [
+                  { $ifNull: ['$auditTrail', []] },
+                  incomingAuditTrail,
+                ],
+              },
+            },
+          },
+        ],
+        upsert: true,
+      },
+    };
   }
 
   async saveCatalogs(catalogs: PromotionCatalog[]): Promise<void> {
