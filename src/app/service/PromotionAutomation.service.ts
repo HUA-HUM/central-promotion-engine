@@ -23,22 +23,22 @@ export class PromotionAutomationService implements OnApplicationBootstrap {
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
-    // Disabled for now until mercadolibre-api paths are confirmed.
+    // Disabled on bootstrap. Cron handlers run automation processes.
   }
 
-  @Cron(process.env.SYNC_PROMOTIONS_CRON || '0 */30 * * * *')
+  @Cron(process.env.SYNC_PROMOTIONS_CRON || '0 0 */12 * * *')
   async handleSyncCron(): Promise<void> {
-    // Disabled for now until mercadolibre-api paths are confirmed.
+    await this.triggerSync('cron.sync');
   }
 
-  @Cron(process.env.ACTIVATE_PROMOTIONS_CRON || '0 */15 * * * *')
+  @Cron(process.env.ACTIVATE_PROMOTIONS_CRON || '0 0 */8 * * *')
   async handleActivateCron(): Promise<void> {
-    // Disabled for now until mercadolibre-api paths are confirmed.
+    await this.triggerActivate('cron.activate');
   }
 
-  @Cron(process.env.DEACTIVATE_PROMOTIONS_CRON || '0 */20 * * * *')
+  @Cron(process.env.DEACTIVATE_PROMOTIONS_CRON || '0 0 */10 * * *')
   async handleDeactivateCron(): Promise<void> {
-    // Disabled for now until mercadolibre-api paths are confirmed.
+    await this.triggerDeactivate('cron.deactivate');
   }
 
   async triggerSync(sourceProcess: string): Promise<void> {

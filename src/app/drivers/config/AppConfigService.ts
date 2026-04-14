@@ -21,9 +21,9 @@ export class AppConfigService {
       priceApiBaseUrl: this.configService.getOrThrow<string>('PRICE_API_BASE_URL'),
       priceApiTimeout: this.configService.get<number>('PRICE_API_TIMEOUT', 10000),
       priceApiToken:this.configService.get<string>('PRICE_API_TOKEN'),
-      syncCron: this.configService.get<string>('SYNC_PROMOTIONS_CRON', '0 */30 * * * *'),
-      activateCron: this.configService.get<string>('ACTIVATE_PROMOTIONS_CRON', '0 */15 * * * *'),
-      deactivateCron: this.configService.get<string>('DEACTIVATE_PROMOTIONS_CRON', '0 */20 * * * *'),
+      syncCron: this.configService.get<string>('SYNC_PROMOTIONS_CRON', '0 0 */12 * * *'),
+      activateCron: this.configService.get<string>('ACTIVATE_PROMOTIONS_CRON', '0 0 */8 * * *'),
+      deactivateCron: this.configService.get<string>('DEACTIVATE_PROMOTIONS_CRON', '0 0 */10 * * *'),
       defaultMinProfitability: this.configService.get<number>('DEFAULT_MIN_PROFITABILITY', 0.12),
       defaultMinProfit: this.configService.get<number>('DEFAULT_MIN_PROFIT', 0),
     };
