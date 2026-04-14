@@ -39,6 +39,11 @@ export class ActivatePromotions {
     let skipped = 0;
 
     for (const promotion of promotions) {
+      if (this.isDeadlineExpired(promotion)) {
+        skipped += 1;
+        continue;
+      }
+
       if (!this.meetsProfitabilityRules(promotion)) {
         skipped += 1;
         continue;
@@ -158,5 +163,13 @@ export class ActivatePromotions {
     const minAllowed = this.builder.config.defaultMinProfitability;
 
     return profitability >= minAllowed && profit >= this.builder.config.defaultMinProfit;
+  }
+
+  private isDeadlineExpired(promotion: Promotion): boolean {
+    if (!promotion.deadlineDate) {
+      return false;
+    }
+
+    return new Date() > promotion.deadlineDate;
   }
 }
