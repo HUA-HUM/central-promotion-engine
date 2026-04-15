@@ -1,12 +1,13 @@
 import { Promotion } from '@core/entities/Promotion';
 import { PromotionType } from '@core/entities/PromotionCatalog';
 import { Terms } from '@core/entities/Terms';
+import { ActivatePromotionCommand } from '@core/adapters/repositories/IMercadolibreApiRepository';
 import {
-  GenericPromotionBuilder,
+  GenericPromotion,
   PromotionBuilderInput,
-} from '@core/interactors/promotion/builders/PromotionBuilder';
+} from '@core/interactors/promotion/models/Promotion';
 
-export class SmartPromotionBuilder extends GenericPromotionBuilder {
+export class SmartPromotion extends GenericPromotion {
   readonly type = PromotionType.SMART;
 
   async build(command: PromotionBuilderInput): Promise<Promotion> {
@@ -38,6 +39,15 @@ export class SmartPromotionBuilder extends GenericPromotionBuilder {
         revenue: {},
         store: {},
       },
+    };
+  }
+
+  buildActivationCommand(promotion: Promotion): ActivatePromotionCommand {
+    return {
+      promotionId: promotion.promotionId,
+      promotionType: PromotionType.SMART,
+      itemId: promotion.itemId,
+      offerId: promotion.offerId,
     };
   }
 }

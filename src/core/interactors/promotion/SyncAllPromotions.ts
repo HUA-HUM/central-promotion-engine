@@ -5,15 +5,11 @@ import { PriceApiRepository } from '@core/adapters/repositories/IPriceApiReposit
 import { ProcessResult } from '@core/adapters/dto/ProcessResult';
 import { Logger } from '@core/drivers/logger/Logger';
 import { Promotion } from '@core/entities/Promotion';
-import { PromotionCatalog, PromotionType } from '@core/entities/PromotionCatalog';
-import { DealPromotionBuilder } from '@core/interactors/promotion/builders/DealPromotionBuilder';
-import { PreNegotiatedPromotionBuilder } from '@core/interactors/promotion/builders/PreNegotiatedPromotionBuilder';
+import { PromotionCatalog } from '@core/entities/PromotionCatalog';
 import {
-  GenericPromotionBuilder,
-  PromotionBuilder,
   PromotionBuilderInput,
-} from '@core/interactors/promotion/builders/PromotionBuilder';
-import { SmartPromotionBuilder } from '@core/interactors/promotion/builders/SmartPromotionBuilder';
+} from '@core/interactors/promotion/models/Promotion';
+import { PromotionModelsRegistry } from '@core/interactors/promotion/models/PromotionModelsRegistry';
 import { SaveAllPromotion } from '@core/interactors/promotion/SaveAllPromotion';
 import {
   PriceMetricsBulkResolver,
@@ -34,32 +30,12 @@ export interface SyncAllPromotionsBuilder {
 }
 
 export class SyncAllPromotions {
-  private readonly promotionBuilders = new Map<PromotionType, PromotionBuilder>();
-  private genericPromotionBuilder?: GenericPromotionBuilder;
+  private readonly promotionModelsRegistry: PromotionModelsRegistry;
   private readonly priceMetricsResolver: PriceMetricsBulkResolver;
 
   constructor(private readonly builder: SyncAllPromotionsBuilder) {
     this.priceMetricsResolver = new PriceMetricsBulkResolver(builder.priceApiRepository);
-  }
-
-  private initializePromotionBuilders(): void {
-    if (this.promotionBuilders.size > 0) {
-      return;
-    }
-
-    const builders: PromotionBuilder[] = [
-      new DealPromotionBuilder({ priceApiRepository: this.builder.priceApiRepository }),
-      new SmartPromotionBuilder({ priceApiRepository: this.builder.priceApiRepository }),
-      new PreNegotiatedPromotionBuilder({ priceApiRepository: this.builder.priceApiRepository }),
-    ];
-
-    this.genericPromotionBuilder = new GenericPromotionBuilder({
-      priceApiRepository: this.builder.priceApiRepository,
-    });
-
-    for (const promotionBuilder of builders) {
-      this.promotionBuilders.set(promotionBuilder.type, promotionBuilder);
-    }
+    this.promotionModelsRegistry = PromotionModelsRegistry.forSync(builder.priceApiRepository);
   }
 
   async execute(input: SyncAllPromotionsInput): Promise<ProcessResult> {
@@ -74,8 +50,6 @@ export class SyncAllPromotions {
         startedAt: startedAt.toISOString(),
       }),
     );
-
-    this.initializePromotionBuilders();
 
     const promotionCatalogs = (await this.builder.mercadolibreApiRepository.getPromotions())
       .filter((promotionCatalog) =>
@@ -112,8 +86,6 @@ export class SyncAllPromotions {
     input: SyncAllPromotionsInput,
     processName: string,
   ): Promise<ProcessResult> {
-    this.initializePromotionBuilders();
-
     await this.builder.saveAllPromotion.saveCatalogs(promotionCatalogs);
     let success = 0;
     let failure = 0;
@@ -239,13 +211,7 @@ export class SyncAllPromotions {
   }
 
   private async buildPromotion(command: PromotionBuilderInput): Promise<Promotion> {
-    const promotionBuilder =
-      this.promotionBuilders.get(command.promotionCatalog.type) ?? this.genericPromotionBuilder;
-
-    if (!promotionBuilder) {
-      throw new Error('No generic promotion builder configured');
-    }
-
+    const promotionBuilder = this.promotionModelsRegistry.resolve(command.promotionCatalog.type);
     return promotionBuilder.build(command);
   }
 }

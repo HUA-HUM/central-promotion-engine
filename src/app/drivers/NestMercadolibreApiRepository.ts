@@ -2,6 +2,7 @@ import { HttpService } from '@nestjs/axios';
 import { Injectable } from '@nestjs/common';
 import { firstValueFrom } from 'rxjs';
 import {
+  ActivatePromotionCommand,
   EligibleItem,
   ItemDetail,
   MercadolibreApiRepository,
@@ -110,19 +111,26 @@ export class NestMercadolibreApiRepository implements MercadolibreApiRepository 
     };
   }
 
-  async activatePromotion(command: {
-    promotionId: string;
-    promotionType: string;
-    itemId: string;
-    offerId?: string;
-  }): Promise<{ offerId?: string; status: string }> {
+  async activatePromotion(command: ActivatePromotionCommand): Promise<{ offerId?: string; status: string }> {
+    const requestBody: {
+      promotion_id: string;
+      promotion_type: string;
+      offer_id?: string;
+      deal_price?: number;
+    } = {
+      promotion_id: command.promotionId,
+      promotion_type: command.promotionType,
+    };
+
+    if ('dealPrice' in command) {
+      requestBody.deal_price = command.dealPrice;
+    } else {
+      requestBody.offer_id = command.offerId;
+    }
+
     const response = await this.post<{ offer_id?: string; status: string }>(
       `/meli/seller-promotions/items/${command.itemId}`,
-      {
-        promotion_id: command.promotionId,
-        promotion_type: command.promotionType,
-        offer_id: command.offerId,
-      },
+      requestBody,
     );
 
     return {

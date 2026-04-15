@@ -88,17 +88,22 @@ export interface ItemDetail {
   price: number;
 }
 
+interface BaseActivatePromotionCommand {
+  promotionId: string;
+  promotionType: PromotionType;
+  itemId: string;
+  offerId?: string;
+  dealPrice?: number;
+}
+
+export type ActivatePromotionCommand = BaseActivatePromotionCommand;
+
 export interface MercadolibreApiRepository {
   getPromotions(): Promise<PromotionCatalog[]>;
   getEligibleItems(promotionId: string, promotionType: string): Promise<EligibleItem[]>;
   getElegibleItemsPaginated(promotionId: string, promotionType: string, searchAfter?: string): Promise<MeliPaginatedResponse<EligibleItem>>;
   getItemDetail(itemId: string): Promise<ItemDetail>;
-  activatePromotion(command: {
-    promotionId: string;
-    promotionType: string;
-    itemId: string;
-    offerId?: string;
-  }): Promise<{ offerId?: string; status: string }>;
+  activatePromotion(command: ActivatePromotionCommand): Promise<{ offerId?: string; status: string }>;
   pauseOrDeletePromotion(command: {
     promotionId: string;
     itemId: string;

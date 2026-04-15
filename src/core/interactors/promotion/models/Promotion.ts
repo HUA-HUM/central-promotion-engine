@@ -1,6 +1,7 @@
 import {
   EligibleItem,
   ItemDetail,
+  ActivatePromotionCommand,
 } from '@core/adapters/repositories/IMercadolibreApiRepository';
 import { PriceApiRepository, PriceMetrics } from '@core/adapters/repositories/IPriceApiRepository';
 import { Promotion, PromotionStatus } from '@core/entities/Promotion';
@@ -24,20 +25,28 @@ export interface PromotionBuilder {
   build(command: PromotionBuilderInput): Promise<Promotion>;
 }
 
+export interface PromotionModel extends PromotionBuilder {
+  buildActivationCommand(promotion: Promotion): ActivatePromotionCommand;
+}
+
 export interface PromotionBuilderDependencies {
   priceApiRepository: PriceApiRepository;
 }
 
-export class GenericPromotionBuilder implements PromotionBuilder {
+export class GenericPromotion implements PromotionModel {
   readonly type: PromotionType = PromotionType.UNKNOWN;
 
-  constructor(protected readonly dependencies: PromotionBuilderDependencies) {}
+  constructor(protected readonly dependencies?: PromotionBuilderDependencies) {}
 
   async build(command: PromotionBuilderInput): Promise<Promotion> {
     return this.buildBasePromotion(command);
   }
 
   protected async buildBasePromotion(command: PromotionBuilderInput): Promise<Promotion> {
+    if (!this.dependencies) {
+      throw new Error('Price API repository is required to build promotions');
+    }
+
     const { eligibleItem, itemDetail } = command;
     const suggestedPrice = eligibleItem.suggestedPrice ?? itemDetail.price ?? 0;
     const metrics =
@@ -92,6 +101,15 @@ export class GenericPromotionBuilder implements PromotionBuilder {
           reason: 'Promotion synchronized',
         },
       ],
+    };
+  }
+
+  buildActivationCommand(promotion: Promotion): ActivatePromotionCommand {
+    return {
+      promotionId: promotion.promotionId,
+      promotionType: promotion.type,
+      itemId: promotion.itemId,
+      offerId: promotion.offerId,
     };
   }
 }

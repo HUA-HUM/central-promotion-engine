@@ -1,9 +1,13 @@
 import { AppConfig } from '@app/drivers/config/AppConfig';
 import { ProcessResult } from '@core/adapters/dto/ProcessResult';
 import { Logger } from '@core/drivers/logger/Logger';
-import { MercadolibreApiRepository } from '@core/adapters/repositories/IMercadolibreApiRepository';
+import {
+  ActivatePromotionCommand,
+  MercadolibreApiRepository,
+} from '@core/adapters/repositories/IMercadolibreApiRepository';
 import { PromotionRepository } from '@core/adapters/repositories/IPromotionRepository';
 import { Promotion, PromotionStatus } from '@core/entities/Promotion';
+import { PromotionModelsRegistry } from '@core/interactors/promotion/models/PromotionModelsRegistry';
 
 export interface ActivatePromotionsInput {
   sourceProcess: string;
@@ -17,7 +21,11 @@ export interface ActivatePromotionsBuilder {
 }
 
 export class ActivatePromotions {
-  constructor(private readonly builder: ActivatePromotionsBuilder) {}
+  private readonly promotionModelsRegistry: PromotionModelsRegistry;
+
+  constructor(private readonly builder: ActivatePromotionsBuilder) {
+    this.promotionModelsRegistry = PromotionModelsRegistry.forActivation();
+  }
 
   async execute(input: ActivatePromotionsInput): Promise<ProcessResult> {
     const startedAt = new Date();
@@ -50,12 +58,9 @@ export class ActivatePromotions {
       }
 
       try {
-        const response = await this.builder.mercadolibreApiRepository.activatePromotion({
-          promotionId: promotion.promotionId,
-          promotionType: promotion.type,
-          itemId: promotion.itemId,
-          offerId: promotion.offerId,
-        });
+        const response = await this.builder.mercadolibreApiRepository.activatePromotion(
+          this.buildActivateCommand(promotion),
+        );
 
         const updatedPromotion: Promotion = {
           ...promotion,
@@ -182,5 +187,9 @@ export class ActivatePromotions {
     }
 
     return new Date() > promotion.deadlineDate;
+  }
+
+  private buildActivateCommand(promotion: Promotion): ActivatePromotionCommand {
+    return this.promotionModelsRegistry.resolve(promotion.type).buildActivationCommand(promotion);
   }
 }
