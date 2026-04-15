@@ -15,6 +15,10 @@ import {
 } from '@core/interactors/promotion/builders/PromotionBuilder';
 import { SmartPromotionBuilder } from '@core/interactors/promotion/builders/SmartPromotionBuilder';
 import { SaveAllPromotion } from '@core/interactors/promotion/SaveAllPromotion';
+import {
+  PriceMetricsBulkResolver,
+  PriceMetricsRequest,
+} from '@core/interactors/promotion/services/PriceMetricsBulkResolver';
 
 export interface SyncAllPromotionsInput {
   sourceProcess: string;
@@ -32,8 +36,11 @@ export interface SyncAllPromotionsBuilder {
 export class SyncAllPromotions {
   private readonly promotionBuilders = new Map<PromotionType, PromotionBuilder>();
   private genericPromotionBuilder?: GenericPromotionBuilder;
+  private readonly priceMetricsResolver: PriceMetricsBulkResolver;
 
-  constructor(private readonly builder: SyncAllPromotionsBuilder) {}
+  constructor(private readonly builder: SyncAllPromotionsBuilder) {
+    this.priceMetricsResolver = new PriceMetricsBulkResolver(builder.priceApiRepository);
+  }
 
   private initializePromotionBuilders(): void {
     if (this.promotionBuilders.size > 0) {
@@ -138,6 +145,7 @@ export class SyncAllPromotions {
         );
 
         const enabledEligibleItems = eligibleItems.filter((item) => existingMlas.has(item.itemId));
+        const buildCommands: PromotionBuilderInput[] = [];
         for (const item of enabledEligibleItems) {
           try {
             const detail = await this.builder.mercadolibreApiRepository.getItemDetail(item.itemId);
@@ -145,11 +153,53 @@ export class SyncAllPromotions {
               throw new Error(`Missing categoryId for item ${item.itemId}`);
             }
 
-            const promotion = await this.buildPromotion({
+            buildCommands.push({
               promotionCatalog,
               eligibleItem: item,
               itemDetail: detail,
               input,
+            });
+          } catch (error) {
+            failure += 1;
+            const message = error instanceof Error ? error.message : 'Unknown sync error';
+            Logger.error(
+              JSON.stringify({
+                message: 'Promotion sync item failed',
+                process: processName,
+                sourceProcess: input.sourceProcess,
+                itemId: item.itemId,
+                promotionId: promotionCatalog.promotionId,
+                reason: message,
+              }),
+            );
+          }
+        }
+
+        const metricsRequests: PriceMetricsRequest<PromotionBuilderInput>[] = buildCommands.map(
+          (command) => ({
+            context: command,
+            input: {
+              itemId: command.eligibleItem.itemId,
+              sku: command.itemDetail.sku,
+              categoryId: command.itemDetail.categoryId,
+              publicationType: command.itemDetail.listingTypeId,
+              salePrice: command.eligibleItem.suggestedPrice ?? command.itemDetail.price ?? 0,
+              meliContributionPercentage: command.eligibleItem.meliPercentage,
+            },
+          }),
+        );
+
+        const resolvedMetrics = await this.priceMetricsResolver.resolve(metricsRequests);
+
+        for (const resolved of resolvedMetrics) {
+          try {
+            if (resolved.error) {
+              throw resolved.error;
+            }
+
+            const promotion = await this.buildPromotion({
+              ...resolved.context,
+              priceMetrics: resolved.metrics,
             });
             consolidated.push(promotion);
           } catch (error) {
@@ -160,7 +210,7 @@ export class SyncAllPromotions {
                 message: 'Promotion sync item failed',
                 process: processName,
                 sourceProcess: input.sourceProcess,
-                itemId: item.itemId,
+                itemId: resolved.context.eligibleItem.itemId,
                 promotionId: promotionCatalog.promotionId,
                 reason: message,
               }),

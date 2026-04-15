@@ -3,24 +3,16 @@ import { Injectable } from '@nestjs/common';
 import { firstValueFrom } from 'rxjs';
 import {
   PriceApiRepository,
+  PriceMetricsBulkResult,
   PriceMetricsInput,
   PriceMetrics,
+  PriceApiGetProfitResponse,
+  PriceApiGetProfitBulkResponse,
 } from '@core/adapters/repositories/IPriceApiRepository';
 import { AppConfigService } from '@app/drivers/config/AppConfigService';
 import { loggerError, loggerInfo } from '@core/drivers/logger/Logger';
 
-interface PriceApiGetProfitResponse {
-  economics?: {
-    cost?: number;
-    profitAmount?: number;
-    profitabilityPercent?: number;
-    marginPercent?: number;
-  };
-  status?: {
-    profitable?: boolean;
-    shouldPause?: boolean;
-  };
-}
+const BULK_LIMIT = 50;
 
 @Injectable()
 export class NestPriceApiRepository implements PriceApiRepository {
@@ -47,6 +39,54 @@ export class NestPriceApiRepository implements PriceApiRepository {
       profitable: response.status?.profitable,
       shouldPause: response.status?.shouldPause,
     };
+  }
+
+  async getMetricsBulk(inputs: PriceMetricsInput[]): Promise<PriceMetricsBulkResult[]> {
+    if (inputs.length === 0) {
+      return [];
+    }
+
+    const results: PriceMetricsBulkResult[] = [];
+    for (let index = 0; index < inputs.length; index += BULK_LIMIT) {
+      const chunk = inputs.slice(index, index + BULK_LIMIT);
+      const response = await this.post<PriceApiGetProfitBulkResponse[]>('/internal/getProfit/bulk',
+        chunk.map((input) => ({
+          mla: input.itemId,
+          sku: input.sku,
+          categoryId: input.categoryId,
+          publicationType: input.publicationType,
+          salePrice: input.salePrice,
+          meliContributionPercentage: input.meliContributionPercentage,
+        })),
+      );
+
+      for (const item of response ?? []) {
+        if (!item.input?.mla || !item.input.categoryId || !item.input.publicationType) {
+          continue;
+        }
+
+        results.push({
+          input: {
+            itemId: item.input.mla,
+            sku: item.input.sku,
+            categoryId: item.input.categoryId,
+            publicationType: item.input.publicationType,
+            salePrice: item.input.salePrice ?? 0,
+            meliContributionPercentage: item.input.meliContributionPercentage,
+          },
+          metrics: {
+            cost: item.economics?.cost,
+            profit: item.economics?.profitAmount,
+            profitability: item.economics?.profitabilityPercent,
+            margin: item.economics?.marginPercent,
+            profitable: item.status?.profitable,
+            shouldPause: item.status?.shouldPause,
+          },
+        });
+      }
+    }
+
+    return results;
   }
 
   private async post<T>(path: string, body: unknown): Promise<T> {

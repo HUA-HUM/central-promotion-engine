@@ -6,6 +6,20 @@ import { MercadolibreApiRepository } from '@core/adapters/repositories/IMercadol
 import { PriceApiRepository } from '@core/adapters/repositories/IPriceApiRepository';
 import { PromotionRepository } from '@core/adapters/repositories/IPromotionRepository';
 import { Promotion, PromotionStatus } from '@core/entities/Promotion';
+import {
+  PriceMetricsBulkResolver,
+  PriceMetricsRequest,
+} from '@core/interactors/promotion/services/PriceMetricsBulkResolver';
+
+interface PromotionMetricsCandidate {
+  promotion: Promotion;
+  detail: {
+    categoryId: string;
+    listingTypeId: string;
+    sku?: string;
+    salePrice: number;
+  };
+}
 
 export interface DeactivatePromotionsInput {
   sourceProcess: string;
@@ -21,7 +35,11 @@ export interface DeactivatePromotionsBuilder {
 }
 
 export class DeactivatePromotions {
-  constructor(private readonly builder: DeactivatePromotionsBuilder) {}
+  private readonly priceMetricsResolver: PriceMetricsBulkResolver;
+
+  constructor(private readonly builder: DeactivatePromotionsBuilder) {
+    this.priceMetricsResolver = new PriceMetricsBulkResolver(builder.priceApiRepository);
+  }
 
   async execute(input: DeactivatePromotionsInput): Promise<ProcessResult> {
     const startedAt = new Date();
@@ -51,6 +69,8 @@ export class DeactivatePromotions {
     let failure = 0;
     let skipped = 0;
 
+    const metricsCandidates: PromotionMetricsCandidate[] = [];
+
     for (const promotion of promotions) {
       try {
         if (this.isPromotionOutOfDate(promotion)) {
@@ -66,20 +86,11 @@ export class DeactivatePromotions {
         }
 
         if (!existingMlas.has(promotion.itemId)) {
-          const action = promotion.offerId ? 'pause' : 'delete';
-          await this.builder.mercadolibreApiRepository.pauseOrDeletePromotion({
-            promotionId: promotion.promotionId,
-            itemId: promotion.itemId,
-            offerId: promotion.offerId,
-            action,
-          });
-
-          await this.markAs(
+          await this.deleteOrPauseAndMark(
             promotion,
-            PromotionStatus.DELETED,
             input,
             'Promotion item no longer exists in campaign repository',
-            `Promotion ${action} automatically because item is not in campaign repository`,
+            'because item is not in campaign repository',
           );
           success += 1;
           continue;
@@ -90,33 +101,52 @@ export class DeactivatePromotions {
         if (!categoryId) {
           throw new Error(`Missing categoryId for item ${promotion.itemId}`);
         }
-        const currentSalePrice = detail.price ?? promotion.prices.originalPrice ?? 0;
-        const currentMetrics = await this.builder.priceApiRepository.getMetrics({
-          itemId: promotion.itemId,
-          sku: detail.sku ?? promotion.sku,
-          categoryId,
-          publicationType: detail.listingTypeId,
-          salePrice: currentSalePrice,
-          meliContributionPercentage:
-            promotion.terms?.resignation?.mercadolibre?.percentage,
-        });
 
-        const updatedPromotion: Promotion = {
-          ...promotion,
-          prices: {
-            ...promotion.prices,
-            originalPrice: currentSalePrice,
+        metricsCandidates.push({
+          promotion,
+          detail: {
+            categoryId,
+            listingTypeId: detail.listingTypeId,
+            sku: detail.sku ?? promotion.sku,
+            salePrice: detail.price ?? promotion.prices.originalPrice ?? 0,
           },
-          economics: {
-            ...promotion.economics,
-            cost: currentMetrics.cost ?? promotion.economics.cost,
-            profit: currentMetrics.profit ?? promotion.economics.profit,
-            profitability: currentMetrics.profitability ?? promotion.economics.profitability,
-            margin: currentMetrics.margin ?? promotion.economics.margin,
-            profitable: currentMetrics.profitable ?? promotion.economics.profitable,
-            shouldPause: currentMetrics.shouldPause ?? promotion.economics.shouldPause,
-          },
-        };
+        });
+      } catch (error) {
+        failure += 1;
+        await this.markAsFailed(promotion, input, error);
+      }
+    }
+
+    const metricsRequests: PriceMetricsRequest<PromotionMetricsCandidate>[] = metricsCandidates.map(
+      (candidate) => ({
+        context: candidate,
+        input: {
+          itemId: candidate.promotion.itemId,
+          sku: candidate.detail.sku,
+          categoryId: candidate.detail.categoryId,
+          publicationType: candidate.detail.listingTypeId,
+          salePrice: candidate.detail.salePrice,
+          meliContributionPercentage:
+            candidate.promotion.terms?.resignation?.mercadolibre?.percentage,
+        },
+      }),
+    );
+
+    const resolvedMetrics = await this.priceMetricsResolver.resolve(metricsRequests);
+
+    for (const resolved of resolvedMetrics) {
+      const { promotion } = resolved.context;
+
+      try {
+        if (resolved.error || !resolved.metrics) {
+          throw resolved.error ?? new Error('Metrics were not resolved');
+        }
+
+        const updatedPromotion = this.buildPromotionWithUpdatedMetrics(
+          promotion,
+          resolved.context.detail.salePrice,
+          resolved.metrics,
+        );
 
         if (this.stillMeetsRules(updatedPromotion)) {
           await this.builder.promotionRepository.update(updatedPromotion);
@@ -124,55 +154,16 @@ export class DeactivatePromotions {
           continue;
         }
 
-        const action = promotion.offerId ? 'pause' : 'delete';
-        await this.builder.mercadolibreApiRepository.pauseOrDeletePromotion({
-          promotionId: promotion.promotionId,
-          itemId: promotion.itemId,
-          offerId: promotion.offerId,
-          action,
-        });
-
-        await this.markAs(
+        await this.deleteOrPauseAndMark(
           updatedPromotion,
-          PromotionStatus.DELETED,
           input,
           'Current sale price no longer satisfies profitability rules',
-          `Promotion ${action} automatically`,
+          'automatically',
         );
         success += 1;
       } catch (error) {
         failure += 1;
-        const reason = error instanceof Error ? error.message : 'Unknown deactivation error';
-        await this.builder.promotionRepository.update({
-          ...promotion,
-          status: PromotionStatus.FAILED_DEACTIVATION,
-          metadata: {
-            ...promotion.metadata,
-            updatedBy: input.updatedBy,
-            sourceProcess: input.sourceProcess,
-            reason,
-            statusReason: reason,
-          },
-          auditTrail: [
-            ...promotion.auditTrail,
-            {
-              process: input.sourceProcess,
-              status: PromotionStatus.FAILED_DEACTIVATION,
-              reason,
-              executedAt: new Date(),
-            },
-          ],
-        });
-        Logger.error(
-          JSON.stringify({
-            message: 'Promotion deactivation failed',
-            process: 'deactivate',
-            sourceProcess: input.sourceProcess,
-            promotionId: promotion.promotionId,
-            itemId: promotion.itemId,
-            reason,
-          }),
-        );
+        await this.markAsFailed(promotion, input, error);
       }
     }
 
@@ -236,6 +227,92 @@ export class DeactivatePromotions {
         },
       ],
     });
+  }
+
+  private buildPromotionWithUpdatedMetrics(
+    promotion: Promotion,
+    currentSalePrice: number,
+    currentMetrics: Awaited<ReturnType<PriceApiRepository['getMetrics']>>,
+  ): Promotion {
+    return {
+      ...promotion,
+      prices: {
+        ...promotion.prices,
+        originalPrice: currentSalePrice,
+      },
+      economics: {
+        ...promotion.economics,
+        cost: currentMetrics.cost ?? promotion.economics.cost,
+        profit: currentMetrics.profit ?? promotion.economics.profit,
+        profitability: currentMetrics.profitability ?? promotion.economics.profitability,
+        margin: currentMetrics.margin ?? promotion.economics.margin,
+        profitable: currentMetrics.profitable ?? promotion.economics.profitable,
+        shouldPause: currentMetrics.shouldPause ?? promotion.economics.shouldPause,
+      },
+    };
+  }
+
+  private async deleteOrPauseAndMark(
+    promotion: Promotion,
+    input: DeactivatePromotionsInput,
+    reason: string,
+    statusReasonSuffix: string,
+  ): Promise<void> {
+    const action = promotion.offerId ? 'pause' : 'delete';
+    await this.builder.mercadolibreApiRepository.pauseOrDeletePromotion({
+      promotionId: promotion.promotionId,
+      itemId: promotion.itemId,
+      offerId: promotion.offerId,
+      action,
+    });
+
+    await this.markAs(
+      promotion,
+      PromotionStatus.DELETED,
+      input,
+      reason,
+      `Promotion ${action} ${statusReasonSuffix}`,
+    );
+  }
+
+  private async markAsFailed(
+    promotion: Promotion,
+    input: DeactivatePromotionsInput,
+    error: unknown,
+  ): Promise<void> {
+    const reason = error instanceof Error ? error.message : 'Unknown deactivation error';
+
+    await this.builder.promotionRepository.update({
+      ...promotion,
+      status: PromotionStatus.FAILED_DEACTIVATION,
+      metadata: {
+        ...promotion.metadata,
+        updatedBy: input.updatedBy,
+        sourceProcess: input.sourceProcess,
+        reason,
+        statusReason: reason,
+      },
+      auditTrail: [
+        ...promotion.auditTrail,
+        {
+          process: input.sourceProcess,
+          status: PromotionStatus.FAILED_DEACTIVATION,
+          reason,
+          executedAt: new Date(),
+        },
+      ],
+    });
+
+    Logger.error(
+      JSON.stringify({
+        message: 'Promotion deactivation failed',
+        process: 'deactivate',
+        sourceProcess: input.sourceProcess,
+        promotionId: promotion.promotionId,
+        itemId: promotion.itemId,
+        reason,
+      }),
+    );
   }
 
   private isPromotionOutOfDate(promotion: Promotion): boolean {

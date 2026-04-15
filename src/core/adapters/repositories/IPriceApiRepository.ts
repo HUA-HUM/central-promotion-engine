@@ -16,6 +16,46 @@ export interface PriceMetricsInput {
   meliContributionPercentage?: number;
 }
 
+export interface PriceMetricsBulkResult {
+  input: PriceMetricsInput;
+  metrics: PriceMetrics;
+}
+
+export interface PriceApiGetProfitResponse {
+  economics?: {
+    cost?: number;
+    profitAmount?: number;
+    profitabilityPercent?: number;
+    marginPercent?: number;
+  };
+  status?: {
+    profitable?: boolean;
+    shouldPause?: boolean;
+  };
+}
+
+export interface PriceApiGetProfitBulkResponse {
+  input?: {
+    mla?: string;
+    sku?: string;
+    categoryId?: string;
+    publicationType?: string;
+    salePrice?: number;
+    meliContributionPercentage?: number;
+  };
+  economics?: {
+    cost?: number;
+    profitAmount?: number;
+    profitabilityPercent?: number;
+    marginPercent?: number;
+  };
+  status?: {
+    profitable?: boolean;
+    shouldPause?: boolean;
+  };
+}
+
 export interface PriceApiRepository {
   getMetrics(input: PriceMetricsInput): Promise<PriceMetrics>;
+  getMetricsBulk(inputs: PriceMetricsInput[]): Promise<PriceMetricsBulkResult[]>;
 }

@@ -2,7 +2,7 @@ import {
   EligibleItem,
   ItemDetail,
 } from '@core/adapters/repositories/IMercadolibreApiRepository';
-import { PriceApiRepository } from '@core/adapters/repositories/IPriceApiRepository';
+import { PriceApiRepository, PriceMetrics } from '@core/adapters/repositories/IPriceApiRepository';
 import { Promotion, PromotionStatus } from '@core/entities/Promotion';
 import { PromotionCatalog, PromotionType } from '@core/entities/PromotionCatalog';
 
@@ -16,6 +16,7 @@ export interface PromotionBuilderInput {
   eligibleItem: EligibleItem;
   itemDetail: ItemDetail;
   input: PromotionExecutionContext;
+  priceMetrics?: PriceMetrics;
 }
 
 export interface PromotionBuilder {
@@ -39,14 +40,16 @@ export class GenericPromotionBuilder implements PromotionBuilder {
   protected async buildBasePromotion(command: PromotionBuilderInput): Promise<Promotion> {
     const { eligibleItem, itemDetail } = command;
     const suggestedPrice = eligibleItem.suggestedPrice ?? itemDetail.price ?? 0;
-    const metrics = await this.dependencies.priceApiRepository.getMetrics({
-      itemId: eligibleItem.itemId,
-      sku: itemDetail.sku,
-      categoryId: itemDetail.categoryId,
-      publicationType: itemDetail.listingTypeId,
-      salePrice: suggestedPrice,
-      meliContributionPercentage: eligibleItem.meliPercentage,
-    });
+    const metrics =
+      command.priceMetrics ??
+      (await this.dependencies.priceApiRepository.getMetrics({
+        itemId: eligibleItem.itemId,
+        sku: itemDetail.sku,
+        categoryId: itemDetail.categoryId,
+        publicationType: itemDetail.listingTypeId,
+        salePrice: suggestedPrice,
+        meliContributionPercentage: eligibleItem.meliPercentage,
+      }));
 
     const now = new Date();
     return {
