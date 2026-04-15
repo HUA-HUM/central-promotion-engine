@@ -6,6 +6,7 @@ import { MercadolibreApiRepository } from '@core/adapters/repositories/IMercadol
 import { PriceApiRepository } from '@core/adapters/repositories/IPriceApiRepository';
 import { PromotionRepository } from '@core/adapters/repositories/IPromotionRepository';
 import { Promotion, PromotionStatus } from '@core/entities/Promotion';
+import { PromotionModelsRegistry } from '@core/interactors/promotion/models/PromotionModelsRegistry';
 import {
   PriceMetricsBulkResolver,
   PriceMetricsRequest,
@@ -36,9 +37,11 @@ export interface DeactivatePromotionsBuilder {
 
 export class DeactivatePromotions {
   private readonly priceMetricsResolver: PriceMetricsBulkResolver;
+  private readonly promotionModelsRegistry: PromotionModelsRegistry;
 
   constructor(private readonly builder: DeactivatePromotionsBuilder) {
     this.priceMetricsResolver = new PriceMetricsBulkResolver(builder.priceApiRepository);
+    this.promotionModelsRegistry = PromotionModelsRegistry.forActivation();
   }
 
   async execute(input: DeactivatePromotionsInput): Promise<ProcessResult> {
@@ -259,12 +262,11 @@ export class DeactivatePromotions {
     statusReasonSuffix: string,
   ): Promise<void> {
     const action = promotion.offerId ? 'pause' : 'delete';
-    await this.builder.mercadolibreApiRepository.pauseOrDeletePromotion({
-      promotionId: promotion.promotionId,
-      itemId: promotion.itemId,
-      offerId: promotion.offerId,
-      action,
-    });
+    const command = this.promotionModelsRegistry
+      .resolve(promotion.type)
+      .buildDeactivationCommand(promotion, action);
+
+    await this.builder.mercadolibreApiRepository.pauseOrDeletePromotion(command);
 
     await this.markAs(
       promotion,
@@ -282,6 +284,7 @@ export class DeactivatePromotions {
         updatedBy: input.updatedBy,
         promotionId: promotion.promotionId,
         itemId: promotion.itemId,
+        promotionType: promotion.type,
         action,
         reason,
       }),

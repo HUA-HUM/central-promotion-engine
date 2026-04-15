@@ -2,6 +2,7 @@ import {
   EligibleItem,
   ItemDetail,
   ActivatePromotionCommand,
+  PauseOrDeletePromotionCommand,
 } from '@core/adapters/repositories/IMercadolibreApiRepository';
 import { PriceApiRepository, PriceMetrics } from '@core/adapters/repositories/IPriceApiRepository';
 import { Promotion, PromotionStatus } from '@core/entities/Promotion';
@@ -27,6 +28,10 @@ export interface PromotionBuilder {
 
 export interface PromotionModel extends PromotionBuilder {
   buildActivationCommand(promotion: Promotion): ActivatePromotionCommand;
+  buildDeactivationCommand(
+    promotion: Promotion,
+    action: 'pause' | 'delete',
+  ): PauseOrDeletePromotionCommand;
 }
 
 export interface PromotionBuilderDependencies {
@@ -110,6 +115,18 @@ export class GenericPromotion implements PromotionModel {
       promotionType: promotion.type,
       itemId: promotion.itemId,
       offerId: promotion.offerId,
+    };
+  }
+
+  buildDeactivationCommand(
+    promotion: Promotion,
+    action: 'pause' | 'delete',
+  ): PauseOrDeletePromotionCommand {
+    return {
+      promotionId: promotion.promotionId,
+      promotionType: promotion.type,
+      itemId: promotion.itemId,
+      action,
     };
   }
 }

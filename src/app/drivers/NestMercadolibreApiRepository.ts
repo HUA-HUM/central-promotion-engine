@@ -6,6 +6,7 @@ import {
   EligibleItem,
   ItemDetail,
   MercadolibreApiRepository,
+  PauseOrDeletePromotionCommand,
   PromotionCatalog,
   MeliPaginatedResponse,
   MeliPromotionCatalog,
@@ -139,13 +140,20 @@ export class NestMercadolibreApiRepository implements MercadolibreApiRepository 
     };
   }
 
-  async pauseOrDeletePromotion(command: {
-    promotionId: string;
-    itemId: string;
-    offerId?: string;
-    action: 'pause' | 'delete';
-  }): Promise<{ status: string }> {
-    return this.delete<{ status: string }>(`/meli/seller-promotions/items/${command.itemId}`);
+  async pauseOrDeletePromotion(command: PauseOrDeletePromotionCommand): Promise<{ status: string }> {
+    const params: Record<string, string> = {
+      promotion_id: command.promotionId,
+      promotion_type: command.promotionType,
+      action: command.action,
+    };
+
+    if (command.offerId) {
+      params.offer_id = command.offerId;
+    }
+
+    return this.delete<{ status: string }>(`/meli/seller-promotions/items/${command.itemId}`, {
+      params,
+    });
   }
 
   private parseDate(rawDate?: string): Date | undefined {
@@ -214,7 +222,12 @@ export class NestMercadolibreApiRepository implements MercadolibreApiRepository 
     }
   }
 
-  private async delete<T>(path: string): Promise<T> {
+  private async delete<T>(
+    path: string,
+    options?: {
+      params?: Record<string, string>;
+    },
+  ): Promise<T> {
     const config = this.configService.get();
     const url = `${config.mercadolibreApiBaseUrl}${path}`;
     try {
@@ -222,6 +235,7 @@ export class NestMercadolibreApiRepository implements MercadolibreApiRepository 
         this.httpService.delete<T>(url, {
           timeout: config.mercadolibreApiTimeout,
           headers: this.headers(config.mercadolibreApiToken),
+          params: options?.params,
         }),
       );
       loggerInfo({

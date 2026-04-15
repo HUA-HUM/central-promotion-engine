@@ -98,16 +98,21 @@ interface BaseActivatePromotionCommand {
 
 export type ActivatePromotionCommand = BaseActivatePromotionCommand;
 
+interface BasePauseOrDeletePromotionCommand {
+  promotionId: string;
+  promotionType: PromotionType;
+  itemId: string;
+  action: 'pause' | 'delete';
+  offerId?: string;
+}
+
+export type PauseOrDeletePromotionCommand = BasePauseOrDeletePromotionCommand;
+
 export interface MercadolibreApiRepository {
   getPromotions(): Promise<PromotionCatalog[]>;
   getEligibleItems(promotionId: string, promotionType: string): Promise<EligibleItem[]>;
   getElegibleItemsPaginated(promotionId: string, promotionType: string, searchAfter?: string): Promise<MeliPaginatedResponse<EligibleItem>>;
   getItemDetail(itemId: string): Promise<ItemDetail>;
   activatePromotion(command: ActivatePromotionCommand): Promise<{ offerId?: string; status: string }>;
-  pauseOrDeletePromotion(command: {
-    promotionId: string;
-    itemId: string;
-    offerId?: string;
-    action: 'pause' | 'delete';
-  }): Promise<{ status: string }>;
+  pauseOrDeletePromotion(command: PauseOrDeletePromotionCommand): Promise<{ status: string }>;
 }

@@ -1,7 +1,10 @@
 import { Promotion } from '@core/entities/Promotion';
 import { PromotionType } from '@core/entities/PromotionCatalog';
 import { Terms } from '@core/entities/Terms';
-import { ActivatePromotionCommand } from '@core/adapters/repositories/IMercadolibreApiRepository';
+import {
+  ActivatePromotionCommand,
+  PauseOrDeletePromotionCommand,
+} from '@core/adapters/repositories/IMercadolibreApiRepository';
 import {
   GenericPromotion,
   PromotionBuilderInput,
@@ -48,6 +51,19 @@ export class PreNegotiatedPromotion extends GenericPromotion {
       promotionType: PromotionType.PRE_NEGOTIATED,
       itemId: promotion.itemId,
       offerId: promotion.offerId,
+    };
+  }
+
+  buildDeactivationCommand(
+    promotion: Promotion,
+    action: 'pause' | 'delete',
+  ): PauseOrDeletePromotionCommand {
+    return {
+      promotionId: promotion.promotionId,
+      promotionType: PromotionType.PRE_NEGOTIATED,
+      itemId: promotion.itemId,
+      offerId: promotion.offerId,
+      action,
     };
   }
 }
