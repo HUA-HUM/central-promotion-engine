@@ -81,6 +81,17 @@ export class ActivatePromotions {
 
         await this.builder.promotionRepository.update(updatedPromotion);
         success += 1;
+        Logger.info(
+          JSON.stringify({
+            message: 'Promotion activated',
+            process: 'activate',
+            sourceProcess: input.sourceProcess,
+            promotionId: promotion.promotionId,
+            itemId: promotion.itemId,
+            offerId: updatedPromotion.offerId,
+            updatedBy: input.updatedBy,
+          }),
+        );
       } catch (error: unknown) {
         failure += 1;
         const reason = error instanceof Error ? error.message : 'Unknown activation error';

@@ -273,6 +273,19 @@ export class DeactivatePromotions {
       reason,
       `Promotion ${action} ${statusReasonSuffix}`,
     );
+
+    Logger.info(
+      JSON.stringify({
+        message: 'Promotion deactivated',
+        process: 'deactivate',
+        sourceProcess: input.sourceProcess,
+        updatedBy: input.updatedBy,
+        promotionId: promotion.promotionId,
+        itemId: promotion.itemId,
+        action,
+        reason,
+      }),
+    );
   }
 
   private async markAsFailed(
