@@ -31,24 +31,9 @@ export class TermsResignation {
 }
 
 @Schema({ _id: false })
-export class TermsPvp {
-  @Prop({ type: TermsValue, default: {} })
-  current?: TermsValue;
-
-  @Prop({ type: TermsValue, default: {} })
-  revenue?: TermsValue;
-
-  @Prop({ type: TermsValue, default: {} })
-  store?: TermsValue;
-}
-
-@Schema({ _id: false })
 export class Terms {
   @Prop({ type: TermsResignation, default: {} })
   resignation!: TermsResignation;
-
-  @Prop({ type: TermsPvp, default: {} })
-  pvp!: TermsPvp;
 }
 
 export const TermsSchema = SchemaFactory.createForClass(Terms);

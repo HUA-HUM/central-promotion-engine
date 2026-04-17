@@ -37,11 +37,6 @@ export class SmartPromotion extends GenericPromotion {
         },
         total: (eligibleItem.meliPercentage ?? 0) + (eligibleItem.sellerPercentage ?? 0),
       },
-      pvp: {
-        current: {},
-        revenue: {},
-        store: {},
-      },
     };
   }
 
