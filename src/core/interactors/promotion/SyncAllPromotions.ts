@@ -51,10 +51,7 @@ export class SyncAllPromotions {
       }),
     );
 
-    const promotionCatalogs = (await this.builder.mercadolibreApiRepository.getPromotions())
-      .filter((promotionCatalog) =>
-        this.builder.config.syncPromotionTypes.includes(promotionCatalog.type),
-      );
+    const promotionCatalogs = (await this.builder.mercadolibreApiRepository.getPromotions());
     const result = await this.syncPromotionCatalogs(promotionCatalogs, input, 'sync');
 
     const finishedAt = new Date();

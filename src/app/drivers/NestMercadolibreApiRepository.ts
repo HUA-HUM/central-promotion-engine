@@ -14,7 +14,7 @@ import {
   MeliItemDetail,
 } from '@core/adapters/repositories/IMercadolibreApiRepository';
 import { AppConfigService } from '@app/drivers/config/AppConfigService';
-import { loggerError, loggerInfo } from '@core/drivers/logger/Logger';
+import { Logger, loggerError, loggerInfo } from '@core/drivers/logger/Logger';
 import { PaginationParams, PaginatedResult } from '@core/entities/common/Pagination';
 
 @Injectable()
@@ -31,8 +31,14 @@ export class NestMercadolibreApiRepository implements MercadolibreApiRepository 
       limit: pagination.limit.toString(),
       offset: pagination.offset.toString(),
     }));
+    const filteredResults = res.results.filter((promotion) =>
+      this.configService.get().syncPromotionTypes.includes(promotion.type),
+    );
+    if (filteredResults.length === 0) {
+      return [];
+    }
     // TODO: Implementar lógica de paginación utilizando res.paging
-    const promotionPromises = res.results.map(async (promotion) => {
+    const promotionPromises = filteredResults.map(async (promotion) => {
       const itemsPaginated = await this.getElegibleItemsPaginated(promotion.id, promotion.type);
 
       return {
@@ -90,7 +96,17 @@ export class NestMercadolibreApiRepository implements MercadolibreApiRepository 
         results: eligibleItems,
       };
     } catch (error) {
-      console.log('catch error in getElegibleItemsPaginated for promotionId', promotionId, promotionType, searchAfter);
+      const message = error instanceof Error ? error.message : 'Unknown mercadolibre error';
+      Logger.warn(
+        JSON.stringify({
+          message: 'Promotion ' + promotionId + ' of type ' + promotionType + ' has no eligible items or failed to fetch them', 
+          service: 'mercadolibre-api',
+          promotionId,
+          promotionType,
+          searchAfter: searchAfter ?? null,
+          reason: message,
+        }),
+      );
       return {
         paging: {
           total: 0,
