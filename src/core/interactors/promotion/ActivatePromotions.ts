@@ -174,6 +174,12 @@ export class ActivatePromotions {
       return false;
     }
 
+    if (promotion.economics.cost && promotion.prices.suggestedPrice) {
+      if (promotion.economics.cost >= promotion.prices.suggestedPrice) {
+        return false;
+      }
+    }
+
     const profitability = promotion.economics.profitability ?? Number.NEGATIVE_INFINITY;
     const profit = promotion.economics.profit ?? Number.NEGATIVE_INFINITY;
     const minAllowed = this.builder.config.defaultMinProfitability;
