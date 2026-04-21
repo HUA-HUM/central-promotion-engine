@@ -1,9 +1,13 @@
 import { AppConfig } from '@app/drivers/config/AppConfig';
 import { ProcessResult } from '@core/adapters/dto/ProcessResult';
 import { Logger } from '@core/drivers/logger/Logger';
-import { MercadolibreApiRepository } from '@core/adapters/repositories/IMercadolibreApiRepository';
+import {
+  ActivatePromotionCommand,
+  MercadolibreApiRepository,
+} from '@core/adapters/repositories/IMercadolibreApiRepository';
 import { PromotionRepository } from '@core/adapters/repositories/IPromotionRepository';
 import { Promotion, PromotionStatus } from '@core/entities/Promotion';
+import { PromotionModelsRegistry } from '@core/interactors/promotion/models/PromotionModelsRegistry';
 
 export interface ActivatePromotionsInput {
   sourceProcess: string;
@@ -17,26 +21,52 @@ export interface ActivatePromotionsBuilder {
 }
 
 export class ActivatePromotions {
-  constructor(private readonly builder: ActivatePromotionsBuilder) {}
+  private readonly promotionModelsRegistry: PromotionModelsRegistry;
+
+  constructor(private readonly builder: ActivatePromotionsBuilder) {
+    this.promotionModelsRegistry = PromotionModelsRegistry.forActivation();
+  }
 
   async execute(input: ActivatePromotionsInput): Promise<ProcessResult> {
+    const startedAt = new Date();
+
+    Logger.info(
+      JSON.stringify({
+        message: 'Promotion activation process started',
+        process: 'activate',
+        sourceProcess: input.sourceProcess,
+        updatedBy: input.updatedBy,
+        startedAt: startedAt.toISOString(),
+      }),
+    );
+
     const promotions = await this.builder.promotionRepository.findPendingActivation();
+
     let success = 0;
     let failure = 0;
     let skipped = 0;
 
     for (const promotion of promotions) {
+
+      if (this.builder.config.syncPromotion && promotion.promotionId !== this.builder.config.syncPromotion) {
+        skipped += 1;
+        continue;
+      }
+      
+      if (this.isDeadlineExpired(promotion)) {
+        skipped += 1;
+        continue;
+      }
+
       if (!this.meetsProfitabilityRules(promotion)) {
         skipped += 1;
         continue;
       }
 
       try {
-        const response = await this.builder.mercadolibreApiRepository.activatePromotion({
-          promotionId: promotion.promotionId,
-          itemId: promotion.itemId,
-          sellerId: promotion.sellerId,
-        });
+        const response = await this.builder.mercadolibreApiRepository.activatePromotion(
+          this.buildActivateCommand(promotion),
+        );
 
         const updatedPromotion: Promotion = {
           ...promotion,
@@ -62,7 +92,18 @@ export class ActivatePromotions {
 
         await this.builder.promotionRepository.update(updatedPromotion);
         success += 1;
-      } catch (error) {
+        Logger.info(
+          JSON.stringify({
+            message: 'Promotion activated',
+            process: 'activate',
+            sourceProcess: input.sourceProcess,
+            promotionId: promotion.promotionId,
+            itemId: promotion.itemId,
+            offerId: updatedPromotion.offerId,
+            updatedBy: input.updatedBy,
+          }),
+        );
+      } catch (error: unknown) {
         failure += 1;
         const reason = error instanceof Error ? error.message : 'Unknown activation error';
         await this.builder.promotionRepository.update({
@@ -90,7 +131,6 @@ export class ActivatePromotions {
             message: 'Promotion activation failed',
             process: 'activate',
             sourceProcess: input.sourceProcess,
-            sellerId: promotion.sellerId,
             promotionId: promotion.promotionId,
             itemId: promotion.itemId,
             reason,
@@ -99,21 +139,69 @@ export class ActivatePromotions {
       }
     }
 
-    return {
+    const result: ProcessResult = {
       process: 'activate',
       total: promotions.length,
       success,
       failure,
       skipped,
     };
+
+    const finishedAt = new Date();
+    const durationMinutes = Number(
+      ((finishedAt.getTime() - startedAt.getTime()) / 60000).toFixed(2),
+    );
+
+    Logger.info(
+      JSON.stringify({
+        message: 'Promotion activation process finished',
+        process: result.process,
+        sourceProcess: input.sourceProcess,
+        updatedBy: input.updatedBy,
+        startedAt: startedAt.toISOString(),
+        finishedAt: finishedAt.toISOString(),
+        durationMinutes,
+        total: result.total,
+        success: result.success,
+        failure: result.failure,
+        skipped: result.skipped,
+      }),
+    );
+
+    return result;
   }
 
   private meetsProfitabilityRules(promotion: Promotion): boolean {
+    if (promotion.economics.shouldPause === true) {
+      return false;
+    }
+
+    if (promotion.economics.profitable === false) {
+      return false;
+    }
+
+    if (promotion.economics.cost && promotion.prices.suggestedPrice) {
+      if (promotion.economics.cost >= promotion.prices.suggestedPrice) {
+        return false;
+      }
+    }
+
     const profitability = promotion.economics.profitability ?? Number.NEGATIVE_INFINITY;
     const profit = promotion.economics.profit ?? Number.NEGATIVE_INFINITY;
-    const minAllowed =
-      promotion.economics.minAllowedProfitability ?? this.builder.config.defaultMinProfitability;
+    const minAllowed = this.builder.config.defaultMinProfitability;
 
     return profitability >= minAllowed && profit >= this.builder.config.defaultMinProfit;
+  }
+
+  private isDeadlineExpired(promotion: Promotion): boolean {
+    if (!promotion.deadlineDate) {
+      return false;
+    }
+
+    return new Date() > promotion.deadlineDate;
+  }
+
+  private buildActivateCommand(promotion: Promotion): ActivatePromotionCommand {
+    return this.promotionModelsRegistry.resolve(promotion.type).buildActivationCommand(promotion);
   }
 }

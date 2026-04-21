@@ -48,6 +48,8 @@ La estructura sigue el estilo de `mercadolibre-api-bidcom`:
 Copiar `.env.example` y completar:
 
 - Mongo: `MONGO_URL`
+- Campaign MLA API: `CAMPAIGN_MLA_API_BASE_URL`, `CAMPAIGN_MLA_API_TIMEOUT`, `CAMPAIGN_MLA_API_TOKEN`
+- Sync promotion types: `SYNC_PROMOTION_TYPES`
 - APIs externas: `MERCADOLIBRE_API_*`, `PRICE_API_*`
 - Reglas: `DEFAULT_MIN_PROFITABILITY`, `DEFAULT_MIN_PROFIT`
 - Cron: `SYNC_PROMOTIONS_CRON`, `ACTIVATE_PROMOTIONS_CRON`, `DEACTIVATE_PROMOTIONS_CRON`

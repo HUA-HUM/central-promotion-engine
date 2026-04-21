@@ -3,8 +3,10 @@ import { ActivatePromotions } from '@core/interactors/promotion/ActivatePromotio
 import { DeactivatePromotions } from '@core/interactors/promotion/DeactivatePromotions';
 import { GetPromotions } from '@core/interactors/promotion/GetPromotions';
 import { SyncAllPromotions } from '@core/interactors/promotion/SyncAllPromotions';
+import { SyncOnePromotion } from '@core/interactors/promotion/SyncOnePromotion';
 import { GetPromotionsDto } from '@app/controller/promotions/GetPromotions.dto';
 import { RunProcessDto } from '@app/controller/promotions/RunProcess.dto';
+import { SyncOnePromotionDto } from '@app/controller/promotions/SyncOnePromotion.dto';
 
 @Controller('promotions')
 export class PromotionsController {
@@ -13,6 +15,8 @@ export class PromotionsController {
     private readonly getPromotions: GetPromotions,
     @Inject('SyncAllPromotions')
     private readonly syncAllPromotions: SyncAllPromotions,
+    @Inject('SyncOnePromotion')
+    private readonly syncOnePromotion: SyncOnePromotion,
     @Inject('ActivatePromotions')
     private readonly activatePromotions: ActivatePromotions,
     @Inject('DeactivatePromotions')
@@ -28,6 +32,15 @@ export class PromotionsController {
   async sync(@Body() body: RunProcessDto) {
     return this.syncAllPromotions.execute({
       sourceProcess: 'manual-sync',
+      updatedBy: body.updatedBy ?? 'manual',
+    });
+  }
+
+  @Post('sync-one')
+  async syncOne(@Body() body: SyncOnePromotionDto) {
+    return this.syncOnePromotion.execute({
+      promotionId: body.promotionId,
+      sourceProcess: 'manual-sync-one',
       updatedBy: body.updatedBy ?? 'manual',
     });
   }

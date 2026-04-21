@@ -19,7 +19,7 @@ describe('ActivatePromotions', () => {
       mercadolibreApiRepository: {
         activatePromotion,
         getEligibleItems: async () => [],
-        getItemDetail: async () => ({ itemId: 'MLA1', sellerId: 'seller-1' }),
+        getItemDetail: async () => ({ itemId: 'MLA1'}),
         getPromotions: async () => [],
         pauseOrDeletePromotion: async () => ({ status: 'paused' }),
       },
@@ -55,7 +55,6 @@ function makePromotion(partial: Partial<Promotion>): Promotion {
   return {
     promotionId: 'promo-1',
     itemId: 'MLA1',
-    sellerId: 'seller-1',
     type: PromotionType.UNKNOWN,
     status: PromotionStatus.SYNCED,
     prices: {},

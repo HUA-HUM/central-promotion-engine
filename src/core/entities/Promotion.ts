@@ -1,20 +1,16 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { PromotionType } from '@core/entities/PromotionCatalog';
+import { Terms } from '@core/entities/Terms';
 
 export enum PromotionStatus {
   SYNCED = 'SYNCED',
   ACTIVE = 'ACTIVE',
   PAUSED = 'PAUSED',
   DELETED = 'DELETED',
+  FINISHED = 'FINISHED',
   FAILED_SYNC = 'FAILED_SYNC',
   FAILED_ACTIVATION = 'FAILED_ACTIVATION',
   FAILED_DEACTIVATION = 'FAILED_DEACTIVATION',
-}
-
-export enum PromotionType {
-  DEAL = 'DEAL',
-  SMART = 'SMART',
-  CUSTOM = 'CUSTOM',
-  UNKNOWN = 'UNKNOWN',
 }
 
 @Schema({ _id: false })
@@ -35,16 +31,16 @@ export class PromotionAudit {
 @Schema({ _id: false })
 export class PromotionPrices {
   @Prop()
-  list?: number;
+  originalPrice?: number;
 
   @Prop()
-  suggested?: number;
+  minPrice?: number;
 
   @Prop()
-  current?: number;
+  maxPrice?: number;
 
   @Prop()
-  strikethrough?: number;
+  suggestedPrice?: number;
 }
 
 @Schema({ _id: false })
@@ -62,7 +58,10 @@ export class PromotionEconomics {
   margin?: number;
 
   @Prop()
-  minAllowedProfitability?: number;
+  profitable?: boolean;
+
+  @Prop()
+  shouldPause?: boolean;
 }
 
 @Schema({ _id: false })
@@ -92,22 +91,40 @@ export class PromotionMetadata {
 @Schema({ collection: 'promotions', timestamps: true })
 export class Promotion {
   @Prop({ required: true })
-  promotionId!: string;
-
-  @Prop({ required: true, index: true })
   itemId!: string;
 
-  @Prop({ required: true, index: true })
-  sellerId!: string;
+  @Prop({ required: true })
+  promotionId!: string;
+
+  @Prop({ required: true })
+  name!: string;
 
   @Prop({ required: true, enum: PromotionType })
   type!: PromotionType;
-
-  @Prop({ required: true, enum: PromotionStatus, index: true })
+  
+  @Prop({ required: true, enum: PromotionStatus })
   status!: PromotionStatus;
 
   @Prop()
   offerId?: string;
+
+  @Prop()
+  startDate?: Date;
+
+  @Prop()
+  finishDate?: Date;
+
+  @Prop()
+  deadlineDate?: Date;
+
+  @Prop({ required: true })
+  sku!: string;
+
+  @Prop({ required: true })
+  listingTypeId!: string;
+
+  @Prop({ required: true })
+  categoryId!: string;
 
   @Prop({ type: PromotionPrices, default: {} })
   prices!: PromotionPrices;
@@ -120,7 +137,11 @@ export class Promotion {
 
   @Prop({ type: [PromotionAudit], default: [] })
   auditTrail!: PromotionAudit[];
+
+  @Prop({ type: Terms, default: {} })
+  terms?: Terms;
 }
 
 export const PromotionSchema = SchemaFactory.createForClass(Promotion);
-PromotionSchema.index({ promotionId: 1, itemId: 1 }, { unique: true });
+
+PromotionSchema.index({ promotionId: 1, itemId: 1 });

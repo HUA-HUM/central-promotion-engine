@@ -6,12 +6,15 @@ import {
   PromotionFilters,
   PromotionRepository,
 } from '@core/adapters/repositories/IPromotionRepository';
+import { PromotionCatalog } from '@core/entities/PromotionCatalog';
 
 @Injectable()
 export class MongoPromotionRepository implements PromotionRepository {
   constructor(
     @InjectModel(Promotion.name)
     private readonly promotionModel: Model<Promotion>,
+    @InjectModel(PromotionCatalog.name)
+    private readonly promotionCatalogModel: Model<PromotionCatalog>,
   ) {}
 
   async saveAll(promotions: Promotion[]): Promise<void> {
@@ -20,15 +23,68 @@ export class MongoPromotionRepository implements PromotionRepository {
     }
 
     await this.promotionModel.bulkWrite(
-      promotions.map((promotion) => ({
+      promotions.map((promotion) => this.buildPromotionUpsertOperation(promotion)),
+      { ordered: false },
+    );
+  }
+
+  private buildPromotionUpsertOperation(promotion: Promotion) {
+    const {
+      auditTrail: incomingAuditTrail = [],
+      status: incomingStatus,
+      ...fieldsToSet
+    } = promotion;
+
+    // If a promotion is already ACTIVE in DB, keep it ACTIVE during sync updates.
+    const resolvedStatus = {
+      $cond: [
+        { $eq: ['$status', PromotionStatus.ACTIVE] },
+        '$status',
+        incomingStatus,
+      ],
+    };
+
+    return {
+      updateOne: {
+        filter: {
+          promotionId: promotion.promotionId,
+          itemId: promotion.itemId,
+        },
+        update: [
+          {
+            $set: fieldsToSet,
+          },
+          {
+            $set: {
+              status: resolvedStatus,
+            },
+          },
+          {
+            $set: {
+              auditTrail: {
+                $concatArrays: [
+                  { $ifNull: ['$auditTrail', []] },
+                  incomingAuditTrail,
+                ],
+              },
+            },
+          },
+        ],
+        upsert: true,
+      },
+    };
+  }
+
+  async saveCatalogs(catalogs: PromotionCatalog[]): Promise<void> {
+    if (catalogs.length === 0) {
+      return;
+    }
+
+    await this.promotionCatalogModel.bulkWrite(
+      catalogs.map((catalog) => ({
         updateOne: {
-          filter: {
-            promotionId: promotion.promotionId,
-            itemId: promotion.itemId,
-          },
-          update: {
-            $set: promotion,
-          },
+          filter: { promotionId: catalog.promotionId },
+          update: { $set: catalog },
           upsert: true,
         },
       })),
@@ -57,12 +113,24 @@ export class MongoPromotionRepository implements PromotionRepository {
   }
 
   async update(promotion: Promotion): Promise<void> {
+    const { auditTrail, ...promotionWithoutAuditTrail } = promotion;
+    const latestAudit = auditTrail?.[auditTrail.length - 1];
+
     await this.promotionModel.updateOne(
       {
         promotionId: promotion.promotionId,
         itemId: promotion.itemId,
       },
-      { $set: promotion },
+      {
+        $set: promotionWithoutAuditTrail,
+        ...(latestAudit
+          ? {
+              $push: {
+                auditTrail: latestAudit,
+              },
+            }
+          : {}),
+      },
     );
   }
 
@@ -71,10 +139,6 @@ export class MongoPromotionRepository implements PromotionRepository {
 
     if (filters.status) {
       query.status = filters.status;
-    }
-
-    if (filters.sellerId) {
-      query.sellerId = filters.sellerId;
     }
 
     if (filters.itemId) {
