@@ -26,6 +26,7 @@ export class AppConfigService {
       deactivateCron: this.configService.get<string>('DEACTIVATE_PROMOTIONS_CRON', '0 0 */10 * * *'),
       defaultMinProfitability: this.configService.get<number>('DEFAULT_MIN_PROFITABILITY', 0.12),
       defaultMinProfit: this.configService.get<number>('DEFAULT_MIN_PROFIT', 0),
+      syncPromotion: this.configService.get<string>('SYNC_PROMOTION', ''),
     };
   }
 }

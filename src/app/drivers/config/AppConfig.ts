@@ -17,4 +17,5 @@ export interface AppConfig {
   deactivateCron: string;
   defaultMinProfitability: number;
   defaultMinProfit: number;
+  syncPromotion: string;
 }

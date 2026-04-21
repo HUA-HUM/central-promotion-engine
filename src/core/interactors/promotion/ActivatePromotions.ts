@@ -47,6 +47,12 @@ export class ActivatePromotions {
     let skipped = 0;
 
     for (const promotion of promotions) {
+
+      if (this.builder.config.syncPromotion && promotion.promotionId !== this.builder.config.syncPromotion) {
+        skipped += 1;
+        continue;
+      }
+      
       if (this.isDeadlineExpired(promotion)) {
         skipped += 1;
         continue;
