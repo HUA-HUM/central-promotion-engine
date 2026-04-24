@@ -3,8 +3,8 @@ import { ProcessResult } from '@core/adapters/dto/ProcessResult';
 import { Logger } from '@core/drivers/logger/Logger';
 import {
   ActivatePromotionCommand,
-  MercadolibreApiRepository,
-} from '@core/adapters/repositories/IMercadolibreApiRepository';
+  IAPIMercadolibreApiRepository,
+} from '@core/adapters/repositories/mercadolibre/IAPIMercadolibreApiRepository';
 import { PromotionRepository } from '@core/adapters/repositories/IPromotionRepository';
 import { Promotion, PromotionStatus } from '@core/entities/Promotion';
 import { PromotionModelsRegistry } from '@core/interactors/promotion/models/PromotionModelsRegistry';
@@ -16,7 +16,7 @@ export interface ActivatePromotionsInput {
 
 export interface ActivatePromotionsBuilder {
   promotionRepository: PromotionRepository;
-  mercadolibreApiRepository: MercadolibreApiRepository;
+  mercadolibreApiRepository: IAPIMercadolibreApiRepository;
   config: AppConfig;
 }
 
@@ -172,25 +172,22 @@ export class ActivatePromotions {
   }
 
   private meetsProfitabilityRules(promotion: Promotion): boolean {
-    if (promotion.economics.shouldPause === true) {
-      return false;
-    }
-
     if (promotion.economics.profitable === false) {
       return false;
     }
 
-    if (promotion.economics.cost && promotion.prices.suggestedPrice) {
-      if (promotion.economics.cost >= promotion.prices.suggestedPrice) {
-        return false;
-      }
+    const profitability = promotion.economics.profitability ?? Number.NEGATIVE_INFINITY;
+    if (profitability <= 0) {
+      return false;
     }
 
-    const profitability = promotion.economics.profitability ?? Number.NEGATIVE_INFINITY;
-    const profit = promotion.economics.profit ?? Number.NEGATIVE_INFINITY;
-    const minAllowed = this.builder.config.defaultMinProfitability;
+    const salePrice =
+      promotion.prices.suggestedPrice ??
+      promotion.prices.originalPrice ??
+      Number.NEGATIVE_INFINITY;
+    const cost = promotion.economics.cost ?? Number.POSITIVE_INFINITY;
 
-    return profitability >= minAllowed && profit >= this.builder.config.defaultMinProfit;
+    return salePrice > cost;
   }
 
   private isDeadlineExpired(promotion: Promotion): boolean {

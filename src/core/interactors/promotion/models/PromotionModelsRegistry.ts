@@ -1,4 +1,4 @@
-import { PriceApiRepository } from '@core/adapters/repositories/IPriceApiRepository';
+import { IAPIPriceApiRepository } from '@core/adapters/repositories/price-api/IAPIPriceApiRepository';
 import { PromotionType } from '@core/entities/PromotionCatalog';
 import { DealPromotion } from '@core/interactors/promotion/models/DealPromotion';
 import { PreNegotiatedPromotion } from '@core/interactors/promotion/models/PreNegotiatedPromotion';
@@ -30,7 +30,7 @@ export class PromotionModelsRegistry {
     return new PromotionModelsRegistry(models, new GenericPromotion());
   }
 
-  static forSync(priceApiRepository: PriceApiRepository): PromotionModelsRegistry {
+  static forSync(priceApiRepository: IAPIPriceApiRepository): PromotionModelsRegistry {
     const dependencies: PromotionBuilderDependencies = { priceApiRepository };
     const models: PromotionModel[] = [
       new DealPromotion(dependencies),

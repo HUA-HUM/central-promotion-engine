@@ -4,7 +4,7 @@ import { Terms } from '@core/entities/Terms';
 import {
   ActivatePromotionCommand,
   PauseOrDeletePromotionCommand,
-} from '@core/adapters/repositories/IMercadolibreApiRepository';
+} from '@core/adapters/repositories/mercadolibre/IAPIMercadolibreApiRepository';
 import {
   GenericPromotion,
   PromotionBuilderInput,

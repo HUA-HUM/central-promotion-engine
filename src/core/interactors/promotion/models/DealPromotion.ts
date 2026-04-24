@@ -1,6 +1,6 @@
 import { PromotionType } from '@core/entities/PromotionCatalog';
 import { Promotion } from '@core/entities/Promotion';
-import { ActivatePromotionCommand } from '@core/adapters/repositories/IMercadolibreApiRepository';
+import { ActivatePromotionCommand } from '@core/adapters/repositories/mercadolibre/IAPIMercadolibreApiRepository';
 import { GenericPromotion } from '@core/interactors/promotion/models/Promotion';
 
 export class DealPromotion extends GenericPromotion {

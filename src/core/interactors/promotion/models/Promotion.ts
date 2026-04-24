@@ -3,8 +3,9 @@ import {
   ItemDetail,
   ActivatePromotionCommand,
   PauseOrDeletePromotionCommand,
-} from '@core/adapters/repositories/IMercadolibreApiRepository';
-import { PriceApiRepository, PriceMetrics } from '@core/adapters/repositories/IPriceApiRepository';
+  MeliPromotionStatus,
+} from '@core/adapters/repositories/mercadolibre/IAPIMercadolibreApiRepository';
+import { IAPIPriceApiRepository, PriceMetrics } from '@core/adapters/repositories/price-api/IAPIPriceApiRepository';
 import { Promotion, PromotionStatus } from '@core/entities/Promotion';
 import { PromotionCatalog, PromotionType } from '@core/entities/PromotionCatalog';
 
@@ -35,7 +36,7 @@ export interface PromotionModel extends PromotionBuilder {
 }
 
 export interface PromotionBuilderDependencies {
-  priceApiRepository: PriceApiRepository;
+  priceApiRepository: IAPIPriceApiRepository;
 }
 
 export class GenericPromotion implements PromotionModel {
@@ -66,6 +67,9 @@ export class GenericPromotion implements PromotionModel {
       }));
 
     const now = new Date();
+    const promotionStatus = this.resolvePromotionStatus(eligibleItem.status);
+    const statusReason = this.resolveStatusReason(promotionStatus);
+
     return {
       itemId: eligibleItem.itemId,
       promotionId: command.promotionCatalog.promotionId,
@@ -74,7 +78,7 @@ export class GenericPromotion implements PromotionModel {
       startDate: command.promotionCatalog.startDate,
       finishDate: command.promotionCatalog.finishDate,
       deadlineDate: command.promotionCatalog.deadlineDate,
-      status: PromotionStatus.SYNCED,
+      status: promotionStatus,
       sku: itemDetail.sku,
       categoryId: itemDetail.categoryId,
       listingTypeId: itemDetail.listingTypeId,
@@ -96,17 +100,41 @@ export class GenericPromotion implements PromotionModel {
         syncedAt: now,
         updatedBy: command.input.updatedBy,
         sourceProcess: command.input.sourceProcess,
-        statusReason: 'Promotion synchronized',
+        statusReason,
       },
       auditTrail: [
         {
           process: command.input.sourceProcess,
-          status: PromotionStatus.SYNCED,
+          status: promotionStatus,
           executedAt: now,
-          reason: 'Promotion synchronized',
+          reason: statusReason,
         },
       ],
     };
+  }
+
+  private resolvePromotionStatus(status?: MeliPromotionStatus): PromotionStatus {
+    if (status === MeliPromotionStatus.STARTED) {
+      return PromotionStatus.ACTIVE;
+    }
+
+    if (status === MeliPromotionStatus.PENDIGNG) {
+      return PromotionStatus.PENDING;
+    }
+
+    return PromotionStatus.SYNCED;
+  }
+
+  private resolveStatusReason(status: PromotionStatus): string {
+    if (status === PromotionStatus.ACTIVE) {
+      return 'Promotion synchronized as active because Mercado Libre already started it';
+    }
+
+    if (status === PromotionStatus.PENDING) {
+      return 'Promotion synchronized pending Mercado Libre approval';
+    }
+
+    return 'Promotion synchronized';
   }
 
   buildActivationCommand(promotion: Promotion): ActivatePromotionCommand {

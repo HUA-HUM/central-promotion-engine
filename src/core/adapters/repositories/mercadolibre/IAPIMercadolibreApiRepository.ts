@@ -34,16 +34,13 @@ export interface MeliEligibleItem {
   id: string;
   status: MeliPromotionStatus;
   original_price: number;
-  // DEAL
   suggested_discounted_price: number;
   min_discounted_price?: number;
   max_discounted_price?: number;
-  // SMART
   offer_id?: string;
   price?: number;
   meli_percentage?: number;
   seller_percentage?: number;
-  // PRE_NEGOTIATED
 }
 
 export interface MeliItemDetail {
@@ -108,10 +105,14 @@ interface BasePauseOrDeletePromotionCommand {
 
 export type PauseOrDeletePromotionCommand = BasePauseOrDeletePromotionCommand;
 
-export interface MercadolibreApiRepository {
+export interface IAPIMercadolibreApiRepository {
   getPromotions(): Promise<PromotionCatalog[]>;
   getEligibleItems(promotionId: string, promotionType: string): Promise<EligibleItem[]>;
-  getElegibleItemsPaginated(promotionId: string, promotionType: string, searchAfter?: string): Promise<MeliPaginatedResponse<EligibleItem>>;
+  getElegibleItemsPaginated(
+    promotionId: string,
+    promotionType: string,
+    searchAfter?: string,
+  ): Promise<MeliPaginatedResponse<EligibleItem>>;
   getItemDetail(itemId: string): Promise<ItemDetail>;
   activatePromotion(command: ActivatePromotionCommand): Promise<{ offerId?: string; status: string }>;
   pauseOrDeletePromotion(command: PauseOrDeletePromotionCommand): Promise<{ status: string }>;
