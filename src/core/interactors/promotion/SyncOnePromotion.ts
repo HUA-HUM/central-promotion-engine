@@ -1,4 +1,4 @@
-import { MercadolibreApiRepository } from '@core/adapters/repositories/IMercadolibreApiRepository';
+import { IAPIMercadolibreApiRepository } from '@core/adapters/repositories/mercadolibre/IAPIMercadolibreApiRepository';
 import { ProcessResult } from '@core/adapters/dto/ProcessResult';
 import {
   SyncAllPromotions,
@@ -12,7 +12,7 @@ export interface SyncOnePromotionInput {
 }
 
 export interface SyncOnePromotionBuilder {
-  mercadolibreApiRepository: MercadolibreApiRepository;
+  mercadolibreApiRepository: IAPIMercadolibreApiRepository;
   syncAllPromotions: SyncAllPromotions;
 }
 

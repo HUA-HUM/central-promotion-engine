@@ -55,7 +55,7 @@ export interface PriceApiGetProfitBulkResponse {
   };
 }
 
-export interface PriceApiRepository {
+export interface IAPIPriceApiRepository {
   getMetrics(input: PriceMetricsInput): Promise<PriceMetrics>;
   getMetricsBulk(inputs: PriceMetricsInput[]): Promise<PriceMetricsBulkResult[]>;
 }

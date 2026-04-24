@@ -1,10 +1,15 @@
 import { AppConfig } from '@app/drivers/config/AppConfig';
-import { CampaignMlaApiRepository } from '@core/adapters/repositories/ICampaignMlaApiRepository';
-import { MercadolibreApiRepository } from '@core/adapters/repositories/IMercadolibreApiRepository';
-import { PriceApiRepository } from '@core/adapters/repositories/IPriceApiRepository';
+import { IAPICampaignMlaApiRepository } from '@core/adapters/repositories/madre-api/IAPICampaignMlaApiRepository';
+import {
+  EligibleItem,
+  IAPIMercadolibreApiRepository,
+  ItemDetail,
+} from '@core/adapters/repositories/mercadolibre/IAPIMercadolibreApiRepository';
+import { IAPIPriceApiRepository } from '@core/adapters/repositories/price-api/IAPIPriceApiRepository';
 import { ProcessResult } from '@core/adapters/dto/ProcessResult';
 import { Logger } from '@core/drivers/logger/Logger';
 import { Promotion } from '@core/entities/Promotion';
+import { PromotionStatus } from '@core/entities/Promotion';
 import { PromotionCatalog } from '@core/entities/PromotionCatalog';
 import {
   PromotionBuilderInput,
@@ -22,14 +27,15 @@ export interface SyncAllPromotionsInput {
 }
 
 export interface SyncAllPromotionsBuilder {
-  campaignMlaApiRepository: CampaignMlaApiRepository;
-  mercadolibreApiRepository: MercadolibreApiRepository;
-  priceApiRepository: PriceApiRepository;
+  campaignMlaApiRepository: IAPICampaignMlaApiRepository;
+  mercadolibreApiRepository: IAPIMercadolibreApiRepository;
+  priceApiRepository: IAPIPriceApiRepository;
   saveAllPromotion: SaveAllPromotion;
   config: AppConfig;
 }
 
 export class SyncAllPromotions {
+  private static readonly CAMPAIGN_EXISTS_BULK_LIMIT = 50;
   private readonly promotionModelsRegistry: PromotionModelsRegistry;
   private readonly priceMetricsResolver: PriceMetricsBulkResolver;
 
@@ -86,32 +92,53 @@ export class SyncAllPromotions {
     await this.builder.saveAllPromotion.saveCatalogs(promotionCatalogs);
     let success = 0;
     let failure = 0;
+    let skipped = 0;
 
     for (const promotionCatalog of promotionCatalogs) {
+      if (this.hasFutureStartDate(promotionCatalog)) {
+        skipped += 1;
+        Logger.info(
+          JSON.stringify({
+            message: 'Promotion sync skipped because start date has not been reached',
+            process: processName,
+            sourceProcess: input.sourceProcess,
+            updatedBy: input.updatedBy,
+            promotionId: promotionCatalog.promotionId,
+            promotionType: promotionCatalog.type,
+            startDate: promotionCatalog.startDate?.toISOString() ?? null,
+            currentDate: new Date().toISOString(),
+          }),
+        );
+        continue;
+      }
+
       let searchAfter: string | undefined;
 
       do {
+        const currentSearchAfter = searchAfter;
         const response = await this.builder.mercadolibreApiRepository.getElegibleItemsPaginated(
           promotionCatalog.promotionId,
           promotionCatalog.type,
-          searchAfter,
+          currentSearchAfter,
         );
 
         const consolidated: Promotion[] = [];
         const eligibleItems = response.results ?? [];
+        const nextSearchAfter = response.paging?.searchAfter;
 
         if (eligibleItems.length === 0) {
-          searchAfter = response.paging?.searchAfter;
-          continue;
+          break;
         }
 
         const mlas = eligibleItems.map((item) => item.itemId);
-        const existingMlasResponse = await this.builder.campaignMlaApiRepository.existsBulk(mlas);
-        const existingMlas = new Set(
-          (existingMlasResponse.items ?? [])
-            .filter((item) => item.exists)
-            .map((item) => item.mla),
-        );
+        const existingMlasResult = await this.resolveExistingMlas({
+          promotionCatalog,
+          eligibleItems,
+          input,
+          processName,
+        });
+        failure += existingMlasResult.failureCount;
+        const existingMlas = existingMlasResult.existingMlas;
 
         const enabledEligibleItems = eligibleItems.filter((item) => existingMlas.has(item.itemId));
         const buildCommands: PromotionBuilderInput[] = [];
@@ -131,6 +158,12 @@ export class SyncAllPromotions {
           } catch (error) {
             failure += 1;
             const message = error instanceof Error ? error.message : 'Unknown sync error';
+            await this.persistFailedSyncPromotion({
+              promotionCatalog,
+              eligibleItem: item,
+              input,
+              reason: message,
+            });
             Logger.error(
               JSON.stringify({
                 message: 'Promotion sync item failed',
@@ -174,6 +207,13 @@ export class SyncAllPromotions {
           } catch (error) {
             failure += 1;
             const message = error instanceof Error ? error.message : 'Unknown sync error';
+            await this.persistFailedSyncPromotion({
+              promotionCatalog,
+              eligibleItem: resolved.context.eligibleItem,
+              itemDetail: resolved.context.itemDetail,
+              input,
+              reason: message,
+            });
             Logger.error(
               JSON.stringify({
                 message: 'Promotion sync item failed',
@@ -190,25 +230,203 @@ export class SyncAllPromotions {
         if (consolidated.length > 0) {
           await this.builder.saveAllPromotion.saveAll(consolidated);
           success += consolidated.length;
+
+          for (const promotion of consolidated) {
+            Logger.info(
+              JSON.stringify({
+                message: 'Promotion synced',
+                process: processName,
+                sourceProcess: input.sourceProcess,
+                updatedBy: input.updatedBy,
+                promotionId: promotion.promotionId,
+                itemId: promotion.itemId,
+                status: promotion.status,
+              }),
+            );
+          }
         }
 
-        console.log(`Processed promotion ${promotionCatalog.promotionId} page, success: ${success}, failure: ${failure}`);
+        console.log(
+          `Processed promotion ${promotionCatalog.promotionId} page, success: ${success}, failure: ${failure}`,
+        );
 
-        searchAfter = response.paging?.searchAfter;
+        if (!nextSearchAfter || nextSearchAfter === currentSearchAfter) {
+          if (nextSearchAfter === currentSearchAfter) {
+            Logger.warn(
+              JSON.stringify({
+                message: 'Stopping promotion sync pagination because searchAfter did not advance',
+                process: processName,
+                sourceProcess: input.sourceProcess,
+                promotionId: promotionCatalog.promotionId,
+                promotionType: promotionCatalog.type,
+                searchAfter: currentSearchAfter ?? null,
+              }),
+            );
+          }
+          break;
+        }
+
+        searchAfter = nextSearchAfter;
       } while (searchAfter);
     }
 
     return {
       process: processName,
-      total: success + failure,
+      total: success + failure + skipped,
       success,
       failure,
-      skipped: 0,
+      skipped,
     };
   }
 
   private async buildPromotion(command: PromotionBuilderInput): Promise<Promotion> {
     const promotionBuilder = this.promotionModelsRegistry.resolve(command.promotionCatalog.type);
     return promotionBuilder.build(command);
+  }
+
+  private async persistFailedSyncPromotion(params: {
+    promotionCatalog: PromotionCatalog;
+    eligibleItem: EligibleItem;
+    input: SyncAllPromotionsInput;
+    reason: string;
+    itemDetail?: ItemDetail;
+  }): Promise<void> {
+    const now = new Date();
+    const failedPromotion: Promotion = {
+      itemId: params.eligibleItem.itemId,
+      promotionId: params.promotionCatalog.promotionId,
+      name: params.promotionCatalog.name,
+      type: params.promotionCatalog.type,
+      startDate: params.promotionCatalog.startDate,
+      finishDate: params.promotionCatalog.finishDate,
+      deadlineDate: params.promotionCatalog.deadlineDate,
+      status: PromotionStatus.FAILED_SYNC,
+      offerId: params.eligibleItem.offerId,
+      sku: params.itemDetail?.sku ?? '',
+      categoryId: params.itemDetail?.categoryId ?? 'UNKNOWN',
+      listingTypeId: params.itemDetail?.listingTypeId ?? '',
+      prices: {
+        originalPrice: params.eligibleItem.originalPrice,
+        minPrice: params.eligibleItem.minPrice,
+        maxPrice: params.eligibleItem.maxPrice,
+        suggestedPrice: params.eligibleItem.suggestedPrice,
+      },
+      economics: {},
+      metadata: {
+        syncedAt: now,
+        updatedBy: params.input.updatedBy,
+        sourceProcess: params.input.sourceProcess,
+        reason: params.reason,
+        statusReason: params.reason,
+      },
+      auditTrail: [
+        {
+          process: params.input.sourceProcess,
+          status: PromotionStatus.FAILED_SYNC,
+          executedAt: now,
+          reason: params.reason,
+        },
+      ],
+    };
+
+    await this.builder.saveAllPromotion.saveAll([failedPromotion]);
+  }
+
+  private async resolveExistingMlas(params: {
+    promotionCatalog: PromotionCatalog;
+    eligibleItems: EligibleItem[];
+    input: SyncAllPromotionsInput;
+    processName: string;
+  }): Promise<{ existingMlas: Set<string>; failureCount: number }> {
+    const existingMlas = new Set<string>();
+    let failureCount = 0;
+    const eligibleItemChunks = this.chunkArray(
+      params.eligibleItems,
+      SyncAllPromotions.CAMPAIGN_EXISTS_BULK_LIMIT,
+    );
+
+    for (const chunk of eligibleItemChunks) {
+      try {
+        const response = await this.builder.campaignMlaApiRepository.existsBulk(
+          chunk.map((item) => item.itemId),
+        );
+        const existingItems = new Map(
+          (response.items ?? []).map((item) => [item.mla, item.exists]),
+        );
+
+        for (const eligibleItem of chunk) {
+          if (existingItems.get(eligibleItem.itemId) === true) {
+            existingMlas.add(eligibleItem.itemId);
+            continue;
+          }
+
+          const reason = existingItems.has(eligibleItem.itemId)
+            ? 'Item is not present in Madre campaign repository'
+            : 'Item was not returned by Madre campaign repository';
+
+          await this.persistFailedSyncPromotion({
+            promotionCatalog: params.promotionCatalog,
+            eligibleItem,
+            input: params.input,
+            reason,
+          });
+          failureCount += 1;
+
+          Logger.error(
+            JSON.stringify({
+              message: 'Promotion sync item failed',
+              process: params.processName,
+              sourceProcess: params.input.sourceProcess,
+              itemId: eligibleItem.itemId,
+              promotionId: params.promotionCatalog.promotionId,
+              reason,
+            }),
+          );
+        }
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : 'Unknown campaign mla sync error';
+
+        for (const eligibleItem of chunk) {
+          await this.persistFailedSyncPromotion({
+            promotionCatalog: params.promotionCatalog,
+            eligibleItem,
+            input: params.input,
+            reason,
+          });
+          failureCount += 1;
+
+          Logger.error(
+            JSON.stringify({
+              message: 'Promotion sync item failed',
+              process: params.processName,
+              sourceProcess: params.input.sourceProcess,
+              itemId: eligibleItem.itemId,
+              promotionId: params.promotionCatalog.promotionId,
+              reason,
+            }),
+          );
+        }
+      }
+    }
+
+    return { existingMlas, failureCount };
+  }
+
+  private chunkArray<T>(items: T[], size: number): T[][] {
+    const chunks: T[][] = [];
+
+    for (let index = 0; index < items.length; index += size) {
+      chunks.push(items.slice(index, index + size));
+    }
+
+    return chunks;
+  }
+
+  private hasFutureStartDate(promotionCatalog: PromotionCatalog): boolean {
+    if (!promotionCatalog.startDate) {
+      return false;
+    }
+
+    return promotionCatalog.startDate > new Date();
   }
 }

@@ -14,7 +14,7 @@ export interface CampaignMlaSaveBulkResponse {
   affectedRows: number;
 }
 
-export interface CampaignMlaApiRepository {
+export interface IAPICampaignMlaApiRepository {
   existsBulk(mlas: string[]): Promise<CampaignMlaExistsBulkResponse>;
   saveBulk(mlas: string[]): Promise<CampaignMlaSaveBulkResponse>;
 }

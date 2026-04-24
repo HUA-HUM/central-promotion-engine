@@ -3,8 +3,18 @@ import { PromotionCatalog } from '@core/entities/PromotionCatalog';
 
 export interface PromotionFilters {
   status?: PromotionStatus;
+  statuses?: PromotionStatus[];
   itemId?: string;
+  page?: number;
   limit?: number;
+}
+
+export interface PaginatedPromotionsResult {
+  items: Promotion[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
 }
 
 export interface PromotionRepository {
@@ -13,5 +23,5 @@ export interface PromotionRepository {
   findPendingActivation(): Promise<Promotion[]>;
   findActive(): Promise<Promotion[]>;
   update(promotion: Promotion): Promise<void>;
-  findAll(filters: PromotionFilters): Promise<Promotion[]>;
+  findAll(filters: PromotionFilters): Promise<PaginatedPromotionsResult>;
 }

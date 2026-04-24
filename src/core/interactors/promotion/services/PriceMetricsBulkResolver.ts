@@ -1,8 +1,8 @@
 import {
-  PriceApiRepository,
+  IAPIPriceApiRepository,
   PriceMetrics,
   PriceMetricsInput,
-} from '@core/adapters/repositories/IPriceApiRepository';
+} from '@core/adapters/repositories/price-api/IAPIPriceApiRepository';
 
 export interface PriceMetricsRequest<TContext> {
   context: TContext;
@@ -27,7 +27,9 @@ export const buildPriceMetricsKey = (input: PriceMetricsInput): string =>
   ].join('|');
 
 export class PriceMetricsBulkResolver {
-  constructor(private readonly priceApiRepository: PriceApiRepository) {}
+  private static readonly BULK_BATCH_SIZE = 20;
+
+  constructor(private readonly priceApiRepository: IAPIPriceApiRepository) {}
 
   async resolve<TContext>(
     requests: PriceMetricsRequest<TContext>[],
@@ -38,16 +40,20 @@ export class PriceMetricsBulkResolver {
 
     const bulkMetricsByKey = new Map<string, PriceMetrics>();
 
-    try {
-      const bulkResponse = await this.priceApiRepository.getMetricsBulk(
-        requests.map((request) => request.input),
-      );
+    const requestChunks = this.chunkArray(requests, PriceMetricsBulkResolver.BULK_BATCH_SIZE);
 
-      for (const result of bulkResponse) {
-        bulkMetricsByKey.set(buildPriceMetricsKey(result.input), result.metrics);
+    for (const chunk of requestChunks) {
+      try {
+        const bulkResponse = await this.priceApiRepository.getMetricsBulk(
+          chunk.map((request) => request.input),
+        );
+
+        for (const result of bulkResponse) {
+          bulkMetricsByKey.set(buildPriceMetricsKey(result.input), result.metrics);
+        }
+      } catch {
+        // Fallback to single item requests below.
       }
-    } catch {
-      // Fallback to single item requests below.
     }
 
     const resolved: PriceMetricsResolvedRequest<TContext>[] = [];
@@ -82,5 +88,15 @@ export class PriceMetricsBulkResolver {
     }
 
     return resolved;
+  }
+
+  private chunkArray<T>(items: T[], size: number): T[][] {
+    const chunks: T[][] = [];
+
+    for (let index = 0; index < items.length; index += size) {
+      chunks.push(items.slice(index, index + size));
+    }
+
+    return chunks;
   }
 }

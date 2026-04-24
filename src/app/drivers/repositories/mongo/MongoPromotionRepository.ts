@@ -3,6 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { FilterQuery, Model } from 'mongoose';
 import { Promotion, PromotionStatus } from '@core/entities/Promotion';
 import {
+  PaginatedPromotionsResult,
   PromotionFilters,
   PromotionRepository,
 } from '@core/adapters/repositories/IPromotionRepository';
@@ -134,22 +135,42 @@ export class MongoPromotionRepository implements PromotionRepository {
     );
   }
 
-  async findAll(filters: PromotionFilters): Promise<Promotion[]> {
+  async findAll(filters: PromotionFilters): Promise<PaginatedPromotionsResult> {
     const query: FilterQuery<Promotion> = {};
+    const page = filters.page ?? 1;
+    const limit = filters.limit ?? 100;
 
     if (filters.status) {
       query.status = filters.status;
+    }
+
+    if (filters.statuses?.length) {
+      query.status = {
+        $in: filters.statuses,
+      };
     }
 
     if (filters.itemId) {
       query.itemId = filters.itemId;
     }
 
-    return this.promotionModel
+    const [items, total] = await Promise.all([
+      this.promotionModel
       .find(query)
       .sort({ updatedAt: -1 })
-      .limit(filters.limit ?? 100)
+      .skip((page - 1) * limit)
+      .limit(limit)
       .lean<Promotion[]>()
-      .exec();
+      .exec(),
+      this.promotionModel.countDocuments(query).exec(),
+    ]);
+
+    return {
+      items,
+      total,
+      page,
+      limit,
+      totalPages: total === 0 ? 0 : Math.ceil(total / limit),
+    };
   }
 }

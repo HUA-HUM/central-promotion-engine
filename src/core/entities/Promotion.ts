@@ -3,6 +3,7 @@ import { PromotionType } from '@core/entities/PromotionCatalog';
 import { Terms } from '@core/entities/Terms';
 
 export enum PromotionStatus {
+  PENDING = 'PENDING',
   SYNCED = 'SYNCED',
   ACTIVE = 'ACTIVE',
   PAUSED = 'PAUSED',

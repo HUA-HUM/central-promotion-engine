@@ -1,9 +1,9 @@
 import { AppConfig } from '@app/drivers/config/AppConfig';
 import { ProcessResult } from '@core/adapters/dto/ProcessResult';
 import { Logger } from '@core/drivers/logger/Logger';
-import { CampaignMlaApiRepository } from '@core/adapters/repositories/ICampaignMlaApiRepository';
-import { MercadolibreApiRepository } from '@core/adapters/repositories/IMercadolibreApiRepository';
-import { PriceApiRepository } from '@core/adapters/repositories/IPriceApiRepository';
+import { IAPICampaignMlaApiRepository } from '@core/adapters/repositories/madre-api/IAPICampaignMlaApiRepository';
+import { IAPIMercadolibreApiRepository } from '@core/adapters/repositories/mercadolibre/IAPIMercadolibreApiRepository';
+import { IAPIPriceApiRepository } from '@core/adapters/repositories/price-api/IAPIPriceApiRepository';
 import { PromotionRepository } from '@core/adapters/repositories/IPromotionRepository';
 import { Promotion, PromotionStatus } from '@core/entities/Promotion';
 import { PromotionModelsRegistry } from '@core/interactors/promotion/models/PromotionModelsRegistry';
@@ -29,13 +29,14 @@ export interface DeactivatePromotionsInput {
 
 export interface DeactivatePromotionsBuilder {
   promotionRepository: PromotionRepository;
-  campaignMlaApiRepository: CampaignMlaApiRepository;
-  mercadolibreApiRepository: MercadolibreApiRepository;
-  priceApiRepository: PriceApiRepository;
+  campaignMlaApiRepository: IAPICampaignMlaApiRepository;
+  mercadolibreApiRepository: IAPIMercadolibreApiRepository;
+  priceApiRepository: IAPIPriceApiRepository;
   config: AppConfig;
 }
 
 export class DeactivatePromotions {
+  private static readonly CAMPAIGN_EXISTS_BULK_LIMIT = 100;
   private readonly priceMetricsResolver: PriceMetricsBulkResolver;
   private readonly promotionModelsRegistry: PromotionModelsRegistry;
 
@@ -60,7 +61,7 @@ export class DeactivatePromotions {
     const promotions = await this.builder.promotionRepository.findActive();
     const activeMlas = promotions.map((promotion) => promotion.itemId);
     const existingMlasResponse = activeMlas.length
-      ? await this.builder.campaignMlaApiRepository.existsBulk(activeMlas)
+      ? await this.fetchExistingMlas(activeMlas)
       : { items: [], total: 0 };
     const existingMlas = new Set(
       (existingMlasResponse.items ?? [])
@@ -235,7 +236,7 @@ export class DeactivatePromotions {
   private buildPromotionWithUpdatedMetrics(
     promotion: Promotion,
     currentSalePrice: number,
-    currentMetrics: Awaited<ReturnType<PriceApiRepository['getMetrics']>>,
+    currentMetrics: Awaited<ReturnType<IAPIPriceApiRepository['getMetrics']>>,
   ): Promotion {
     return {
       ...promotion,
@@ -342,19 +343,47 @@ export class DeactivatePromotions {
     return false;
   }
 
-  private stillMeetsRules(promotion: Promotion): boolean {
-    if (promotion.economics.shouldPause === true) {
-      return false;
+  private async fetchExistingMlas(mlas: string[]): Promise<{
+    items: { mla: string; exists: boolean }[];
+    total: number;
+  }> {
+    const chunks = this.chunkArray(mlas, DeactivatePromotions.CAMPAIGN_EXISTS_BULK_LIMIT);
+    const responses = await Promise.all(
+      chunks.map((chunk) => this.builder.campaignMlaApiRepository.existsBulk(chunk)),
+    );
+
+    return {
+      items: responses.flatMap((response) => response.items ?? []),
+      total: responses.reduce((accumulator, response) => accumulator + (response.total ?? 0), 0),
+    };
+  }
+
+  private chunkArray<T>(items: T[], size: number): T[][] {
+    const chunks: T[][] = [];
+
+    for (let index = 0; index < items.length; index += size) {
+      chunks.push(items.slice(index, index + size));
     }
 
+    return chunks;
+  }
+
+  private stillMeetsRules(promotion: Promotion): boolean {
     if (promotion.economics.profitable === false) {
       return false;
     }
 
     const profitability = promotion.economics.profitability ?? Number.NEGATIVE_INFINITY;
-    const profit = promotion.economics.profit ?? Number.NEGATIVE_INFINITY;
-    const minAllowed = this.builder.config.defaultMinProfitability;
+    if (profitability <= 0) {
+      return false;
+    }
 
-    return profitability >= minAllowed && profit >= this.builder.config.defaultMinProfit;
+    const salePrice =
+      promotion.prices.suggestedPrice ??
+      promotion.prices.originalPrice ??
+      Number.NEGATIVE_INFINITY;
+    const cost = promotion.economics.cost ?? Number.POSITIVE_INFINITY;
+
+    return salePrice > cost;
   }
 }

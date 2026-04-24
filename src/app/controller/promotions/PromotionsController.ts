@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Inject, Post, Query } from '@nestjs/common';
 import { ActivatePromotions } from '@core/interactors/promotion/ActivatePromotions';
 import { DeactivatePromotions } from '@core/interactors/promotion/DeactivatePromotions';
 import { GetPromotions } from '@core/interactors/promotion/GetPromotions';
@@ -7,6 +7,7 @@ import { SyncOnePromotion } from '@core/interactors/promotion/SyncOnePromotion';
 import { GetPromotionsDto } from '@app/controller/promotions/GetPromotions.dto';
 import { RunProcessDto } from '@app/controller/promotions/RunProcess.dto';
 import { SyncOnePromotionDto } from '@app/controller/promotions/SyncOnePromotion.dto';
+import { PromotionStatus } from '@core/entities/Promotion';
 
 @Controller('promotions')
 export class PromotionsController {
@@ -26,6 +27,34 @@ export class PromotionsController {
   @Get()
   async list(@Query() query: GetPromotionsDto) {
     return this.getPromotions.findWithFilters(query);
+  }
+
+  @Get('active')
+  async listActive(@Query() query: GetPromotionsDto) {
+    return this.getPromotions.findWithFilters({
+      ...query,
+      status: PromotionStatus.ACTIVE,
+    });
+  }
+
+  @Get('failed')
+  async listFailed(@Query() query: GetPromotionsDto) {
+    return this.getPromotions.findWithFilters({
+      ...query,
+      statuses: [
+        PromotionStatus.FAILED_SYNC,
+        PromotionStatus.FAILED_ACTIVATION,
+        PromotionStatus.FAILED_DEACTIVATION,
+      ],
+      status: undefined,
+    });
+  }
+
+  @Get('skipped')
+  async listSkipped() {
+    throw new BadRequestException(
+      'Skipped promotions are not persisted as a status yet, so they cannot be listed with pagination.',
+    );
   }
 
   @Post('sync')
