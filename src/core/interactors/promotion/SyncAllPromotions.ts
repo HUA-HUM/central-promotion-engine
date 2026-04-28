@@ -36,6 +36,7 @@ export interface SyncAllPromotionsBuilder {
 
 export class SyncAllPromotions {
   private static readonly CAMPAIGN_EXISTS_BULK_LIMIT = 50;
+  private static readonly ITEM_DETAIL_CONCURRENCY = 10;
   private readonly promotionModelsRegistry: PromotionModelsRegistry;
   private readonly priceMetricsResolver: PriceMetricsBulkResolver;
 
@@ -123,6 +124,7 @@ export class SyncAllPromotions {
         );
 
         const consolidated: Promotion[] = [];
+        const failedPromotions: Promotion[] = [];
         const eligibleItems = response.results ?? [];
         const nextSearchAfter = response.paging?.searchAfter;
 
@@ -130,51 +132,66 @@ export class SyncAllPromotions {
           break;
         }
 
-        const mlas = eligibleItems.map((item) => item.itemId);
         const existingMlasResult = await this.resolveExistingMlas({
           promotionCatalog,
           eligibleItems,
           input,
           processName,
+          failedPromotions,
         });
         failure += existingMlasResult.failureCount;
         const existingMlas = existingMlasResult.existingMlas;
 
         const enabledEligibleItems = eligibleItems.filter((item) => existingMlas.has(item.itemId));
         const buildCommands: PromotionBuilderInput[] = [];
-        for (const item of enabledEligibleItems) {
-          try {
+
+        const detailResults = await this.mapWithConcurrency(
+          enabledEligibleItems,
+          SyncAllPromotions.ITEM_DETAIL_CONCURRENCY,
+          async (item) => {
             const detail = await this.builder.mercadolibreApiRepository.getItemDetail(item.itemId);
             if (!detail.categoryId) {
               throw new Error(`Missing categoryId for item ${item.itemId}`);
             }
 
-            buildCommands.push({
-              promotionCatalog,
+            return {
               eligibleItem: item,
               itemDetail: detail,
+            };
+          },
+        );
+
+        for (const detailResult of detailResults) {
+          if (detailResult.status === 'fulfilled') {
+            buildCommands.push({
+              promotionCatalog,
+              eligibleItem: detailResult.item.eligibleItem,
+              itemDetail: detailResult.item.itemDetail,
               input,
             });
-          } catch (error) {
-            failure += 1;
-            const message = error instanceof Error ? error.message : 'Unknown sync error';
-            await this.persistFailedSyncPromotion({
+            continue;
+          }
+
+          failure += 1;
+          const message = detailResult.error.message;
+          failedPromotions.push(
+            this.buildFailedSyncPromotion({
               promotionCatalog,
-              eligibleItem: item,
+              eligibleItem: detailResult.item,
               input,
               reason: message,
-            });
-            Logger.error(
-              JSON.stringify({
-                message: 'Promotion sync item failed',
-                process: processName,
-                sourceProcess: input.sourceProcess,
-                itemId: item.itemId,
-                promotionId: promotionCatalog.promotionId,
-                reason: message,
-              }),
-            );
-          }
+            }),
+          );
+          Logger.error(
+            JSON.stringify({
+              message: 'Promotion sync item failed',
+              process: processName,
+              sourceProcess: input.sourceProcess,
+              itemId: detailResult.item.itemId,
+              promotionId: promotionCatalog.promotionId,
+              reason: message,
+            }),
+          );
         }
 
         const metricsRequests: PriceMetricsRequest<PromotionBuilderInput>[] = buildCommands.map(
@@ -207,13 +224,15 @@ export class SyncAllPromotions {
           } catch (error) {
             failure += 1;
             const message = error instanceof Error ? error.message : 'Unknown sync error';
-            await this.persistFailedSyncPromotion({
-              promotionCatalog,
-              eligibleItem: resolved.context.eligibleItem,
-              itemDetail: resolved.context.itemDetail,
-              input,
-              reason: message,
-            });
+            failedPromotions.push(
+              this.buildFailedSyncPromotion({
+                promotionCatalog,
+                eligibleItem: resolved.context.eligibleItem,
+                itemDetail: resolved.context.itemDetail,
+                input,
+                reason: message,
+              }),
+            );
             Logger.error(
               JSON.stringify({
                 message: 'Promotion sync item failed',
@@ -227,23 +246,13 @@ export class SyncAllPromotions {
           }
         }
 
+        if (failedPromotions.length > 0) {
+          await this.persistFailedSyncPromotions(failedPromotions);
+        }
+
         if (consolidated.length > 0) {
           await this.builder.saveAllPromotion.saveAll(consolidated);
           success += consolidated.length;
-
-          for (const promotion of consolidated) {
-            Logger.info(
-              JSON.stringify({
-                message: 'Promotion synced',
-                process: processName,
-                sourceProcess: input.sourceProcess,
-                updatedBy: input.updatedBy,
-                promotionId: promotion.promotionId,
-                itemId: promotion.itemId,
-                status: promotion.status,
-              }),
-            );
-          }
         }
 
         console.log(
@@ -284,15 +293,15 @@ export class SyncAllPromotions {
     return promotionBuilder.build(command);
   }
 
-  private async persistFailedSyncPromotion(params: {
+  private buildFailedSyncPromotion(params: {
     promotionCatalog: PromotionCatalog;
     eligibleItem: EligibleItem;
     input: SyncAllPromotionsInput;
     reason: string;
     itemDetail?: ItemDetail;
-  }): Promise<void> {
+  }): Promotion {
     const now = new Date();
-    const failedPromotion: Promotion = {
+    return {
       itemId: params.eligibleItem.itemId,
       promotionId: params.promotionCatalog.promotionId,
       name: params.promotionCatalog.name,
@@ -328,8 +337,14 @@ export class SyncAllPromotions {
         },
       ],
     };
+  }
 
-    await this.builder.saveAllPromotion.saveAll([failedPromotion]);
+  private async persistFailedSyncPromotions(promotions: Promotion[]): Promise<void> {
+    if (promotions.length === 0) {
+      return;
+    }
+
+    await this.builder.saveAllPromotion.saveAll(promotions);
   }
 
   private async resolveExistingMlas(params: {
@@ -337,6 +352,7 @@ export class SyncAllPromotions {
     eligibleItems: EligibleItem[];
     input: SyncAllPromotionsInput;
     processName: string;
+    failedPromotions: Promotion[];
   }): Promise<{ existingMlas: Set<string>; failureCount: number }> {
     const existingMlas = new Set<string>();
     let failureCount = 0;
@@ -364,12 +380,14 @@ export class SyncAllPromotions {
             ? 'Item is not present in Madre campaign repository'
             : 'Item was not returned by Madre campaign repository';
 
-          await this.persistFailedSyncPromotion({
-            promotionCatalog: params.promotionCatalog,
-            eligibleItem,
-            input: params.input,
-            reason,
-          });
+          params.failedPromotions.push(
+            this.buildFailedSyncPromotion({
+              promotionCatalog: params.promotionCatalog,
+              eligibleItem,
+              input: params.input,
+              reason,
+            }),
+          );
           failureCount += 1;
 
           Logger.error(
@@ -387,12 +405,14 @@ export class SyncAllPromotions {
         const reason = error instanceof Error ? error.message : 'Unknown campaign mla sync error';
 
         for (const eligibleItem of chunk) {
-          await this.persistFailedSyncPromotion({
-            promotionCatalog: params.promotionCatalog,
-            eligibleItem,
-            input: params.input,
-            reason,
-          });
+          params.failedPromotions.push(
+            this.buildFailedSyncPromotion({
+              promotionCatalog: params.promotionCatalog,
+              eligibleItem,
+              input: params.input,
+              reason,
+            }),
+          );
           failureCount += 1;
 
           Logger.error(
@@ -420,6 +440,53 @@ export class SyncAllPromotions {
     }
 
     return chunks;
+  }
+
+  private async mapWithConcurrency<TItem, TResult>(
+    items: TItem[],
+    concurrency: number,
+    mapper: (item: TItem) => Promise<TResult>,
+  ): Promise<
+    Array<
+      | { status: 'fulfilled'; item: TResult }
+      | { status: 'rejected'; item: TItem; error: Error }
+    >
+  > {
+    const results: Array<
+      | { status: 'fulfilled'; item: TResult }
+      | { status: 'rejected'; item: TItem; error: Error }
+    > = new Array(items.length);
+    let currentIndex = 0;
+
+    const worker = async (): Promise<void> => {
+      while (currentIndex < items.length) {
+        const index = currentIndex;
+        currentIndex += 1;
+        const item = items[index];
+
+        try {
+          results[index] = {
+            status: 'fulfilled',
+            item: await mapper(item),
+          };
+        } catch (error) {
+          results[index] = {
+            status: 'rejected',
+            item,
+            error: error instanceof Error ? error : new Error('Unknown async mapping error'),
+          };
+        }
+      }
+    };
+
+    const workers = Array.from(
+      { length: Math.min(concurrency, items.length) },
+      () => worker(),
+    );
+
+    await Promise.all(workers);
+
+    return results;
   }
 
   private hasFutureStartDate(promotionCatalog: PromotionCatalog): boolean {
