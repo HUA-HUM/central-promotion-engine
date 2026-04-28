@@ -27,7 +27,7 @@ export const buildPriceMetricsKey = (input: PriceMetricsInput): string =>
   ].join('|');
 
 export class PriceMetricsBulkResolver {
-  private static readonly BULK_BATCH_SIZE = 20;
+  private static readonly BULK_BATCH_SIZE = 40;
 
   constructor(private readonly priceApiRepository: IAPIPriceApiRepository) {}
 
