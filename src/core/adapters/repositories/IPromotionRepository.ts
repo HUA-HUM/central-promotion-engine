@@ -21,6 +21,7 @@ export interface PromotionRepository {
   saveAll(promotions: Promotion[]): Promise<void>;
   saveCatalogs(catalogs: PromotionCatalog[]): Promise<void>;
   findPendingActivation(): Promise<Promotion[]>;
+  findPendingActivationBatch(afterId?: string, limit?: number): Promise<Promotion[]>;
   findActive(): Promise<Promotion[]>;
   update(promotion: Promotion): Promise<void>;
   findAll(filters: PromotionFilters): Promise<PaginatedPromotionsResult>;

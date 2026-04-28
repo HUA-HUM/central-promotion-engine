@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { FilterQuery, Model } from 'mongoose';
+import { FilterQuery, Model, Types } from 'mongoose';
 import { Promotion, PromotionStatus } from '@core/entities/Promotion';
 import {
   PaginatedPromotionsResult,
@@ -100,6 +100,25 @@ export class MongoPromotionRepository implements PromotionRepository {
           $in: [PromotionStatus.SYNCED, PromotionStatus.FAILED_ACTIVATION],
         },
       })
+      .lean<Promotion[]>()
+      .exec();
+  }
+
+  async findPendingActivationBatch(afterId?: string, limit = 500): Promise<Promotion[]> {
+    const query: FilterQuery<Promotion> = {
+      status: {
+        $in: [PromotionStatus.SYNCED, PromotionStatus.FAILED_ACTIVATION],
+      },
+    };
+
+    if (afterId) {
+      query._id = { $gt: new Types.ObjectId(afterId) };
+    }
+
+    return this.promotionModel
+      .find(query)
+      .sort({ _id: 1 })
+      .limit(limit)
       .lean<Promotion[]>()
       .exec();
   }
