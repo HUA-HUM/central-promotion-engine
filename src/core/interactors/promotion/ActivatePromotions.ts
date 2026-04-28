@@ -21,6 +21,7 @@ export interface ActivatePromotionsBuilder {
 }
 
 export class ActivatePromotions {
+  private static readonly BATCH_SIZE = 500;
   private readonly promotionModelsRegistry: PromotionModelsRegistry;
 
   constructor(private readonly builder: ActivatePromotionsBuilder) {
@@ -40,108 +41,123 @@ export class ActivatePromotions {
       }),
     );
 
-    const promotions = await this.builder.promotionRepository.findPendingActivation();
-
     let success = 0;
     let failure = 0;
     let skipped = 0;
+    let total = 0;
+    let lastProcessedId: string | undefined;
 
-    for (const promotion of promotions) {
+    while (true) {
+      const promotions = await this.builder.promotionRepository.findPendingActivationBatch(
+        lastProcessedId,
+        ActivatePromotions.BATCH_SIZE,
+      );
 
-      if (this.builder.config.syncPromotion && promotion.promotionId !== this.builder.config.syncPromotion) {
-        skipped += 1;
-        continue;
-      }
-      
-      if (this.isDeadlineExpired(promotion)) {
-        skipped += 1;
-        continue;
-      }
-
-      if (!this.meetsProfitabilityRules(promotion)) {
-        skipped += 1;
-        continue;
+      if (promotions.length === 0) {
+        break;
       }
 
-      try {
-        const response = await this.builder.mercadolibreApiRepository.activatePromotion(
-          this.buildActivateCommand(promotion),
-        );
+      total += promotions.length;
 
-        const updatedPromotion: Promotion = {
-          ...promotion,
-          status: PromotionStatus.ACTIVE,
-          offerId: response.offerId ?? promotion.offerId,
-          metadata: {
-            ...promotion.metadata,
-            activatedAt: new Date(),
-            updatedBy: input.updatedBy,
-            sourceProcess: input.sourceProcess,
-            statusReason: 'Promotion activated automatically',
-          },
-          auditTrail: [
-            ...promotion.auditTrail,
-            {
-              process: input.sourceProcess,
-              status: PromotionStatus.ACTIVE,
-              reason: 'Profitability rules passed',
-              executedAt: new Date(),
+      for (const promotion of promotions) {
+        const promotionWithId = promotion as Promotion & { _id?: { toString(): string } };
+        lastProcessedId = promotionWithId._id?.toString() ?? lastProcessedId;
+
+        if (this.builder.config.syncPromotion && promotion.promotionId !== this.builder.config.syncPromotion) {
+          skipped += 1;
+          continue;
+        }
+
+        if (this.isDeadlineExpired(promotion)) {
+          skipped += 1;
+          continue;
+        }
+
+        if (!this.meetsProfitabilityRules(promotion)) {
+          skipped += 1;
+          continue;
+        }
+
+        try {
+          const response = await this.builder.mercadolibreApiRepository.activatePromotion(
+            this.buildActivateCommand(promotion),
+          );
+
+          const updatedPromotion: Promotion = {
+            ...promotion,
+            status: PromotionStatus.ACTIVE,
+            offerId: response.offerId ?? promotion.offerId,
+            metadata: {
+              ...promotion.metadata,
+              activatedAt: new Date(),
+              updatedBy: input.updatedBy,
+              sourceProcess: input.sourceProcess,
+              statusReason: 'Promotion activated automatically',
             },
-          ],
-        };
+            auditTrail: [
+              ...promotion.auditTrail,
+              {
+                process: input.sourceProcess,
+                status: PromotionStatus.ACTIVE,
+                reason: 'Profitability rules passed',
+                executedAt: new Date(),
+              },
+            ],
+          };
 
-        await this.builder.promotionRepository.update(updatedPromotion);
-        success += 1;
-        Logger.info(
-          JSON.stringify({
-            message: 'Promotion activated',
-            process: 'activate',
-            sourceProcess: input.sourceProcess,
-            promotionId: promotion.promotionId,
-            itemId: promotion.itemId,
-            offerId: updatedPromotion.offerId,
-            updatedBy: input.updatedBy,
-          }),
-        );
-      } catch (error: unknown) {
-        failure += 1;
-        const reason = error instanceof Error ? error.message : 'Unknown activation error';
-        await this.builder.promotionRepository.update({
-          ...promotion,
-          status: PromotionStatus.FAILED_ACTIVATION,
-          metadata: {
-            ...promotion.metadata,
-            updatedBy: input.updatedBy,
-            sourceProcess: input.sourceProcess,
-            statusReason: reason,
-            reason,
-          },
-          auditTrail: [
-            ...promotion.auditTrail,
-            {
-              process: input.sourceProcess,
-              status: PromotionStatus.FAILED_ACTIVATION,
+          await this.builder.promotionRepository.update(updatedPromotion);
+          success += 1;
+          Logger.info(
+            JSON.stringify({
+              message: 'Promotion activated',
+              process: 'activate',
+              sourceProcess: input.sourceProcess,
+              promotionId: promotion.promotionId,
+              itemId: promotion.itemId,
+              offerId: updatedPromotion.offerId,
+              updatedBy: input.updatedBy,
+            }),
+          );
+        } catch (error: unknown) {
+          failure += 1;
+          const reason = error instanceof Error ? error.message : 'Unknown activation error';
+          await this.builder.promotionRepository.update({
+            ...promotion,
+            status: PromotionStatus.FAILED_ACTIVATION,
+            metadata: {
+              ...promotion.metadata,
+              updatedBy: input.updatedBy,
+              sourceProcess: input.sourceProcess,
+              statusReason: reason,
               reason,
-              executedAt: new Date(),
             },
-          ],
-        });
-        Logger.error(
-          JSON.stringify({
-            message: 'Promotion activation failed',
-            process: 'activate',
-            sourceProcess: input.sourceProcess,
-            promotionId: promotion.promotionId,
-            itemId: promotion.itemId,
-            reason,
-          }),
-        );
+            auditTrail: [
+              ...promotion.auditTrail,
+              {
+                process: input.sourceProcess,
+                status: PromotionStatus.FAILED_ACTIVATION,
+                reason,
+                executedAt: new Date(),
+              },
+            ],
+          });
+          Logger.error(
+            JSON.stringify({
+              message: 'Promotion activation failed',
+              process: 'activate',
+              sourceProcess: input.sourceProcess,
+              promotionId: promotion.promotionId,
+              itemId: promotion.itemId,
+              reason,
+            }),
+          );
+        }
       }
     }
 
     const result: ProcessResult = {
       process: 'activate',
-      total: promotions.length,
+      total,
       success,
       failure,
       skipped,
