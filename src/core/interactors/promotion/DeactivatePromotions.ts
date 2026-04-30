@@ -36,7 +36,10 @@ export interface DeactivatePromotionsBuilder {
 }
 
 export class DeactivatePromotions {
+  private static readonly BATCH_SIZE = 500;
   private static readonly CAMPAIGN_EXISTS_BULK_LIMIT = 100;
+  private static readonly DETAIL_CONCURRENCY = 10;
+  private static readonly DEACTIVATION_CONCURRENCY = 10;
   private readonly priceMetricsResolver: PriceMetricsBulkResolver;
   private readonly promotionModelsRegistry: PromotionModelsRegistry;
 
@@ -58,122 +61,101 @@ export class DeactivatePromotions {
       }),
     );
 
-    const promotions = await this.builder.promotionRepository.findActive();
-    const activeMlas = promotions.map((promotion) => promotion.itemId);
-    const existingMlasResponse = activeMlas.length
-      ? await this.fetchExistingMlas(activeMlas)
-      : { items: [], total: 0 };
-    const existingMlas = new Set(
-      (existingMlasResponse.items ?? [])
-        .filter((item) => item.exists)
-        .map((item) => item.mla),
-    );
-
     let success = 0;
     let failure = 0;
     let skipped = 0;
+    let total = 0;
+    let lastProcessedId: string | undefined;
 
-    const metricsCandidates: PromotionMetricsCandidate[] = [];
+    while (true) {
+      const promotions = await this.builder.promotionRepository.findActiveBatch(
+        lastProcessedId,
+        DeactivatePromotions.BATCH_SIZE,
+      );
 
-    for (const promotion of promotions) {
-      try {
-        if (this.isPromotionOutOfDate(promotion)) {
-          await this.markAs(
-            promotion,
-            PromotionStatus.FINISHED,
-            input,
-            'Promotion is outside valid date range',
-            'Promotion finished automatically because it is outside valid date range',
-          );
-          success += 1;
-          continue;
-        }
-
-        if (!existingMlas.has(promotion.itemId)) {
-          await this.deleteOrPauseAndMark(
-            promotion,
-            input,
-            'Promotion item no longer exists in campaign repository',
-            'because item is not in campaign repository',
-          );
-          success += 1;
-          continue;
-        }
-
-        const detail = await this.builder.mercadolibreApiRepository.getItemDetail(promotion.itemId);
-        const categoryId = detail.categoryId ?? promotion.categoryId;
-        if (!categoryId) {
-          throw new Error(`Missing categoryId for item ${promotion.itemId}`);
-        }
-
-        metricsCandidates.push({
-          promotion,
-          detail: {
-            categoryId,
-            listingTypeId: detail.listingTypeId,
-            sku: detail.sku ?? promotion.sku,
-            salePrice: detail.price ?? promotion.prices.originalPrice ?? 0,
-          },
-        });
-      } catch (error) {
-        failure += 1;
-        await this.markAsFailed(promotion, input, error);
+      if (promotions.length === 0) {
+        break;
       }
-    }
 
-    const metricsRequests: PriceMetricsRequest<PromotionMetricsCandidate>[] = metricsCandidates.map(
-      (candidate) => ({
-        context: candidate,
-        input: {
-          itemId: candidate.promotion.itemId,
-          sku: candidate.detail.sku,
-          categoryId: candidate.detail.categoryId,
-          publicationType: candidate.detail.listingTypeId,
-          salePrice: candidate.detail.salePrice,
-          meliContributionPercentage:
-            candidate.promotion.terms?.resignation?.mercadolibre?.percentage,
-        },
-      }),
-    );
+      total += promotions.length;
+      lastProcessedId = this.resolveLastProcessedId(promotions, lastProcessedId);
 
-    const resolvedMetrics = await this.priceMetricsResolver.resolve(metricsRequests);
+      const activeMlas = promotions.map((promotion) => promotion.itemId);
+      const existingMlasResponse = activeMlas.length
+        ? await this.fetchExistingMlas(activeMlas)
+        : { items: [], total: 0 };
+      const existingMlas = new Set(
+        (existingMlasResponse.items ?? [])
+          .filter((item) => item.exists)
+          .map((item) => item.mla),
+      );
 
-    for (const resolved of resolvedMetrics) {
-      const { promotion } = resolved.context;
+      const batchPreparationResults = await this.mapWithConcurrency(
+        promotions,
+        DeactivatePromotions.DETAIL_CONCURRENCY,
+        async (promotion) => this.preparePromotion(promotion, existingMlas, input),
+      );
 
-      try {
-        if (resolved.error || !resolved.metrics) {
-          throw resolved.error ?? new Error('Metrics were not resolved');
-        }
+      const metricsCandidates: PromotionMetricsCandidate[] = [];
 
-        const updatedPromotion = this.buildPromotionWithUpdatedMetrics(
-          promotion,
-          resolved.context.detail.salePrice,
-          resolved.metrics,
-        );
-
-        if (this.stillMeetsRules(updatedPromotion)) {
-          await this.builder.promotionRepository.update(updatedPromotion);
-          skipped += 1;
+      for (const batchPreparationResult of batchPreparationResults) {
+        if (batchPreparationResult.kind === 'candidate') {
+          metricsCandidates.push(batchPreparationResult.candidate);
           continue;
         }
 
-        await this.deleteOrPauseAndMark(
-          updatedPromotion,
-          input,
-          'Current sale price no longer satisfies profitability rules',
-          'automatically',
-        );
-        success += 1;
-      } catch (error) {
-        failure += 1;
-        await this.markAsFailed(promotion, input, error);
+        if (batchPreparationResult.kind === 'success') {
+          success += 1;
+          continue;
+        }
+
+        if (batchPreparationResult.kind === 'failure') {
+          failure += 1;
+          continue;
+        }
+      }
+
+      const metricsRequests: PriceMetricsRequest<PromotionMetricsCandidate>[] = metricsCandidates.map(
+        (candidate) => ({
+          context: candidate,
+          input: {
+            itemId: candidate.promotion.itemId,
+            sku: candidate.detail.sku,
+            categoryId: candidate.detail.categoryId,
+            publicationType: candidate.detail.listingTypeId,
+            salePrice: candidate.detail.salePrice,
+            meliContributionPercentage:
+              candidate.promotion.terms?.resignation?.mercadolibre?.percentage,
+          },
+        }),
+      );
+
+      const resolvedMetrics = await this.priceMetricsResolver.resolve(metricsRequests);
+
+      const metricsResults = await this.mapWithConcurrency(
+        resolvedMetrics,
+        DeactivatePromotions.DEACTIVATION_CONCURRENCY,
+        async (resolved) => this.processResolvedMetrics(resolved.context, resolved.metrics, resolved.error, input),
+      );
+
+      for (const metricsResult of metricsResults) {
+        if (metricsResult === 'success') {
+          success += 1;
+          continue;
+        }
+
+        if (metricsResult === 'failure') {
+          failure += 1;
+          continue;
+        }
+
+        skipped += 1;
       }
     }
 
     const result: ProcessResult = {
       process: 'deactivate',
-      total: promotions.length,
+      total,
       success,
       failure,
       skipped,
@@ -332,6 +314,98 @@ export class DeactivatePromotions {
     );
   }
 
+  private async preparePromotion(
+    promotion: Promotion,
+    existingMlas: Set<string>,
+    input: DeactivatePromotionsInput,
+  ): Promise<
+    | { kind: 'candidate'; candidate: PromotionMetricsCandidate }
+    | { kind: 'success' }
+    | { kind: 'failure' }
+  > {
+    try {
+      if (this.isPromotionOutOfDate(promotion)) {
+        await this.markAs(
+          promotion,
+          PromotionStatus.FINISHED,
+          input,
+          'Promotion is outside valid date range',
+          'Promotion finished automatically because it is outside valid date range',
+        );
+        return { kind: 'success' };
+      }
+
+      if (!existingMlas.has(promotion.itemId)) {
+        await this.deleteOrPauseAndMark(
+          promotion,
+          input,
+          'Promotion item no longer exists in campaign repository',
+          'because item is not in campaign repository',
+        );
+        return { kind: 'success' };
+      }
+
+      const detail = await this.builder.mercadolibreApiRepository.getItemDetail(promotion.itemId);
+      const categoryId = detail.categoryId ?? promotion.categoryId;
+      if (!categoryId) {
+        throw new Error(`Missing categoryId for item ${promotion.itemId}`);
+      }
+
+      return {
+        kind: 'candidate',
+        candidate: {
+          promotion,
+          detail: {
+            categoryId,
+            listingTypeId: detail.listingTypeId,
+            sku: detail.sku ?? promotion.sku,
+            salePrice: detail.price ?? promotion.prices.originalPrice ?? 0,
+          },
+        },
+      };
+    } catch (error) {
+      await this.markAsFailed(promotion, input, error);
+      return { kind: 'failure' };
+    }
+  }
+
+  private async processResolvedMetrics(
+    context: PromotionMetricsCandidate,
+    metrics: Awaited<ReturnType<IAPIPriceApiRepository['getMetrics']>> | undefined,
+    error: Error | undefined,
+    input: DeactivatePromotionsInput,
+  ): Promise<'success' | 'failure' | 'skipped'> {
+    const { promotion } = context;
+
+    try {
+      if (error || !metrics) {
+        throw error ?? new Error('Metrics were not resolved');
+      }
+
+      const updatedPromotion = this.buildPromotionWithUpdatedMetrics(
+        promotion,
+        context.detail.salePrice,
+        metrics,
+      );
+
+      if (this.stillMeetsRules(updatedPromotion)) {
+        await this.builder.promotionRepository.update(updatedPromotion);
+        return 'skipped';
+      }
+
+      await this.deleteOrPauseAndMark(
+        updatedPromotion,
+        input,
+        'Current sale price no longer satisfies profitability rules',
+        'automatically',
+      );
+      return 'success';
+    } catch (caughtError) {
+      await this.markAsFailed(promotion, input, caughtError);
+      return 'failure';
+    }
+  }
+
   private isPromotionOutOfDate(promotion: Promotion): boolean {
     const now = new Date();
     const finishDate = promotion.finishDate;
@@ -366,6 +440,43 @@ export class DeactivatePromotions {
     }
 
     return chunks;
+  }
+
+  private resolveLastProcessedId(
+    promotions: Promotion[],
+    fallback?: string,
+  ): string | undefined {
+    const lastPromotion = promotions[promotions.length - 1] as Promotion & {
+      _id?: { toString(): string };
+    };
+
+    return lastPromotion._id?.toString() ?? fallback;
+  }
+
+  private async mapWithConcurrency<TItem, TResult>(
+    items: TItem[],
+    concurrency: number,
+    mapper: (item: TItem) => Promise<TResult>,
+  ): Promise<TResult[]> {
+    const results: TResult[] = new Array(items.length);
+    let currentIndex = 0;
+
+    const worker = async (): Promise<void> => {
+      while (currentIndex < items.length) {
+        const index = currentIndex;
+        currentIndex += 1;
+        results[index] = await mapper(items[index]);
+      }
+    };
+
+    const workers = Array.from(
+      { length: Math.min(concurrency, items.length) },
+      () => worker(),
+    );
+
+    await Promise.all(workers);
+
+    return results;
   }
 
   private stillMeetsRules(promotion: Promotion): boolean {
