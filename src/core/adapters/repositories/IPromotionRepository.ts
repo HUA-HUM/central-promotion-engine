@@ -23,6 +23,7 @@ export interface PromotionRepository {
   findPendingActivation(): Promise<Promotion[]>;
   findPendingActivationBatch(afterId?: string, limit?: number): Promise<Promotion[]>;
   findActive(): Promise<Promotion[]>;
+  findActiveBatch(afterId?: string, limit?: number): Promise<Promotion[]>;
   update(promotion: Promotion): Promise<void>;
   findAll(filters: PromotionFilters): Promise<PaginatedPromotionsResult>;
 }

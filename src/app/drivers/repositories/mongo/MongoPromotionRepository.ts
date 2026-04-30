@@ -132,6 +132,23 @@ export class MongoPromotionRepository implements PromotionRepository {
       .exec();
   }
 
+  async findActiveBatch(afterId?: string, limit = 500): Promise<Promotion[]> {
+    const query: FilterQuery<Promotion> = {
+      status: PromotionStatus.ACTIVE,
+    };
+
+    if (afterId) {
+      query._id = { $gt: new Types.ObjectId(afterId) };
+    }
+
+    return this.promotionModel
+      .find(query)
+      .sort({ _id: 1 })
+      .limit(limit)
+      .lean<Promotion[]>()
+      .exec();
+  }
+
   async update(promotion: Promotion): Promise<void> {
     const { auditTrail, ...promotionWithoutAuditTrail } = promotion;
     const latestAudit = auditTrail?.[auditTrail.length - 1];
