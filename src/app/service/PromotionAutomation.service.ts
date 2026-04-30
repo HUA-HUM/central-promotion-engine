@@ -8,6 +8,7 @@ import { Logger } from '@core/drivers/logger/Logger';
 
 @Injectable()
 export class PromotionAutomationService implements OnApplicationBootstrap {
+  private static readonly ARGENTINA_TIME_ZONE = 'America/Argentina/Buenos_Aires';
   private syncRunning = false;
   private activateRunning = false;
   private deactivateRunning = false;
@@ -26,17 +27,23 @@ export class PromotionAutomationService implements OnApplicationBootstrap {
     // Disabled on bootstrap. Cron handlers run automation processes.
   }
 
-  //@Cron(process.env.SYNC_PROMOTIONS_CRON || '0 0 */12 * * *')
+  @Cron(process.env.SYNC_PROMOTIONS_CRON || '0 0 */12 * * *', {
+    timeZone: PromotionAutomationService.ARGENTINA_TIME_ZONE,
+  })
   async handleSyncCron(): Promise<void> {
     await this.triggerSync('cron.sync');
   }
 
-  //@Cron(process.env.ACTIVATE_PROMOTIONS_CRON || '0 0 */8 * * *')
+  @Cron(process.env.ACTIVATE_PROMOTIONS_CRON || '0 0 */8 * * *', {
+    timeZone: PromotionAutomationService.ARGENTINA_TIME_ZONE,
+  })
   async handleActivateCron(): Promise<void> {
     await this.triggerActivate('cron.activate');
   }
 
-  //@Cron(process.env.DEACTIVATE_PROMOTIONS_CRON || '0 0 */10 * * *')
+  @Cron(process.env.DEACTIVATE_PROMOTIONS_CRON || '0 0 */10 * * *', {
+    timeZone: PromotionAutomationService.ARGENTINA_TIME_ZONE,
+  })
   async handleDeactivateCron(): Promise<void> {
     await this.triggerDeactivate('cron.deactivate');
   }
