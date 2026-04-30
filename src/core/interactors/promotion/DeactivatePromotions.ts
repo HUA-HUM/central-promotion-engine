@@ -19,6 +19,8 @@ interface PromotionMetricsCandidate {
     listingTypeId: string;
     sku?: string;
     salePrice: number;
+    sellerPercentage?: number;
+    meliContributionPercentage?: number;
   };
 }
 
@@ -38,7 +40,6 @@ export interface DeactivatePromotionsBuilder {
 export class DeactivatePromotions {
   private static readonly BATCH_SIZE = 500;
   private static readonly CAMPAIGN_EXISTS_BULK_LIMIT = 100;
-  private static readonly DETAIL_CONCURRENCY = 10;
   private static readonly DEACTIVATION_CONCURRENCY = 10;
   private readonly priceMetricsResolver: PriceMetricsBulkResolver;
   private readonly promotionModelsRegistry: PromotionModelsRegistry;
@@ -90,15 +91,11 @@ export class DeactivatePromotions {
           .map((item) => item.mla),
       );
 
-      const batchPreparationResults = await this.mapWithConcurrency(
-        promotions,
-        DeactivatePromotions.DETAIL_CONCURRENCY,
-        async (promotion) => this.preparePromotion(promotion, existingMlas, input),
-      );
-
       const metricsCandidates: PromotionMetricsCandidate[] = [];
 
-      for (const batchPreparationResult of batchPreparationResults) {
+      for (const promotion of promotions) {
+        const batchPreparationResult = await this.preparePromotion(promotion, existingMlas, input);
+
         if (batchPreparationResult.kind === 'candidate') {
           metricsCandidates.push(batchPreparationResult.candidate);
           continue;
@@ -124,8 +121,7 @@ export class DeactivatePromotions {
             categoryId: candidate.detail.categoryId,
             publicationType: candidate.detail.listingTypeId,
             salePrice: candidate.detail.salePrice,
-            meliContributionPercentage:
-              candidate.promotion.terms?.resignation?.mercadolibre?.percentage,
+            meliContributionPercentage: candidate.detail.meliContributionPercentage,
           },
         }),
       );
@@ -219,12 +215,15 @@ export class DeactivatePromotions {
     promotion: Promotion,
     currentSalePrice: number,
     currentMetrics: Awaited<ReturnType<IAPIPriceApiRepository['getMetrics']>>,
+    input: DeactivatePromotionsInput,
   ): Promotion {
+    const revalidatedAt = new Date();
+
     return {
       ...promotion,
       prices: {
         ...promotion.prices,
-        originalPrice: currentSalePrice,
+        suggestedPrice: currentSalePrice,
       },
       economics: {
         ...promotion.economics,
@@ -235,6 +234,22 @@ export class DeactivatePromotions {
         profitable: currentMetrics.profitable ?? promotion.economics.profitable,
         shouldPause: currentMetrics.shouldPause ?? promotion.economics.shouldPause,
       },
+      metadata: {
+        ...promotion.metadata,
+        updatedBy: input.updatedBy,
+        sourceProcess: input.sourceProcess,
+        reason: undefined,
+        statusReason: 'Promotion revalidated and kept active',
+      },
+      auditTrail: [
+        ...promotion.auditTrail,
+        {
+          process: input.sourceProcess,
+          status: PromotionStatus.ACTIVE,
+          reason: 'Promotion revalidated and kept active',
+          executedAt: revalidatedAt,
+        },
+      ],
     };
   }
 
@@ -345,10 +360,19 @@ export class DeactivatePromotions {
         return { kind: 'success' };
       }
 
-      const detail = await this.builder.mercadolibreApiRepository.getItemDetail(promotion.itemId);
-      const categoryId = detail.categoryId ?? promotion.categoryId;
+      const categoryId = promotion.categoryId;
       if (!categoryId) {
         throw new Error(`Missing categoryId for item ${promotion.itemId}`);
+      }
+
+      const listingTypeId = promotion.listingTypeId;
+      if (!listingTypeId) {
+        throw new Error(`Missing listingTypeId for item ${promotion.itemId}`);
+      }
+
+      const salePrice = promotion.prices.suggestedPrice;
+      if (salePrice == null) {
+        throw new Error(`Missing suggestedPrice for item ${promotion.itemId}`);
       }
 
       return {
@@ -357,9 +381,11 @@ export class DeactivatePromotions {
           promotion,
           detail: {
             categoryId,
-            listingTypeId: detail.listingTypeId,
-            sku: detail.sku ?? promotion.sku,
-            salePrice: detail.price ?? promotion.prices.originalPrice ?? 0,
+            listingTypeId,
+            sku: promotion.sku,
+            salePrice,
+            sellerPercentage: promotion.terms?.resignation?.seller?.percentage,
+            meliContributionPercentage: promotion.terms?.resignation?.mercadolibre?.percentage,
           },
         },
       };
@@ -386,9 +412,10 @@ export class DeactivatePromotions {
         promotion,
         context.detail.salePrice,
         metrics,
+        input,
       );
 
-      if (this.stillMeetsRules(updatedPromotion)) {
+      if (this.stillMeetsRules(updatedPromotion, context.detail.sellerPercentage)) {
         await this.builder.promotionRepository.update(updatedPromotion);
         return 'skipped';
       }
@@ -479,19 +506,21 @@ export class DeactivatePromotions {
     return results;
   }
 
-  private stillMeetsRules(promotion: Promotion): boolean {
-    if (promotion.economics.profitable === false) {
+  private stillMeetsRules(
+    promotion: Promotion,
+    sellerPercentage?: number,
+  ): boolean {
+    if (promotion.economics.profitable !== true) {
       return false;
     }
 
     const profitability = promotion.economics.profitability ?? Number.NEGATIVE_INFINITY;
-    if (profitability <= 0) {
+    if (profitability <= (sellerPercentage ?? Number.NEGATIVE_INFINITY)) {
       return false;
     }
 
     const salePrice =
       promotion.prices.suggestedPrice ??
-      promotion.prices.originalPrice ??
       Number.NEGATIVE_INFINITY;
     const cost = promotion.economics.cost ?? Number.POSITIVE_INFINITY;
 
