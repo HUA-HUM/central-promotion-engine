@@ -415,10 +415,51 @@ export class DeactivatePromotions {
         input,
       );
 
-      if (this.stillMeetsRules(updatedPromotion, context.detail.sellerPercentage)) {
+      const profitabilityPasses = this.profitabilityPasses(
+        updatedPromotion,
+        context.detail.sellerPercentage,
+      );
+      const pricePasses = this.salePriceExceedsCost(updatedPromotion);
+      const profitablePasses = updatedPromotion.economics.profitable === true;
+
+      if (profitabilityPasses && pricePasses && profitablePasses) {
         await this.builder.promotionRepository.update(updatedPromotion);
+        Logger.info(
+          JSON.stringify({
+            message: 'Promotion kept active after profitability revalidation',
+            process: 'deactivate',
+            sourceProcess: input.sourceProcess,
+            updatedBy: input.updatedBy,
+            promotionId: promotion.promotionId,
+            itemId: promotion.itemId,
+            suggestedPrice: updatedPromotion.prices.suggestedPrice,
+            cost: updatedPromotion.economics.cost,
+            profitability: updatedPromotion.economics.profitability,
+            sellerPercentage: context.detail.sellerPercentage,
+            profitable: updatedPromotion.economics.profitable,
+          }),
+        );
         return 'skipped';
       }
+
+      Logger.info(
+        JSON.stringify({
+          message: 'Promotion failed profitability revalidation and will be deactivated',
+          process: 'deactivate',
+          sourceProcess: input.sourceProcess,
+          updatedBy: input.updatedBy,
+          promotionId: promotion.promotionId,
+          itemId: promotion.itemId,
+          suggestedPrice: updatedPromotion.prices.suggestedPrice,
+          cost: updatedPromotion.economics.cost,
+          profitability: updatedPromotion.economics.profitability,
+          sellerPercentage: context.detail.sellerPercentage,
+          profitable: updatedPromotion.economics.profitable,
+          profitabilityPasses,
+          pricePasses,
+          profitablePasses,
+        }),
+      );
 
       await this.deleteOrPauseAndMark(
         updatedPromotion,
@@ -506,19 +547,15 @@ export class DeactivatePromotions {
     return results;
   }
 
-  private stillMeetsRules(
+  private profitabilityPasses(
     promotion: Promotion,
     sellerPercentage?: number,
   ): boolean {
-    if (promotion.economics.profitable !== true) {
-      return false;
-    }
-
     const profitability = promotion.economics.profitability ?? Number.NEGATIVE_INFINITY;
-    if (profitability <= (sellerPercentage ?? Number.NEGATIVE_INFINITY)) {
-      return false;
-    }
+    return (sellerPercentage ?? Number.POSITIVE_INFINITY) < profitability;
+  }
 
+  private salePriceExceedsCost(promotion: Promotion): boolean {
     const salePrice =
       promotion.prices.suggestedPrice ??
       Number.NEGATIVE_INFINITY;
