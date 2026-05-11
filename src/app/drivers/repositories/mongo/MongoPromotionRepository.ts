@@ -3,7 +3,9 @@ import { InjectModel } from '@nestjs/mongoose';
 import { FilterQuery, Model, Types } from 'mongoose';
 import { Promotion, PromotionStatus } from '@core/entities/Promotion';
 import {
+  PaginatedPromotionCatalogsResult,
   PaginatedPromotionsResult,
+  PromotionCatalogFilters,
   PromotionFilters,
   PromotionRepository,
 } from '@core/adapters/repositories/IPromotionRepository';
@@ -199,6 +201,50 @@ export class MongoPromotionRepository implements PromotionRepository {
       .lean<Promotion[]>()
       .exec(),
       this.promotionModel.countDocuments(query).exec(),
+    ]);
+
+    return {
+      items,
+      total,
+      page,
+      limit,
+      totalPages: total === 0 ? 0 : Math.ceil(total / limit),
+    };
+  }
+
+  async findCatalogs(filters: PromotionCatalogFilters): Promise<PaginatedPromotionCatalogsResult> {
+    const query: FilterQuery<PromotionCatalog> = {};
+    const page = filters.page ?? 1;
+    const limit = filters.limit ?? 100;
+
+    if (filters.status) {
+      query.status = filters.status;
+    }
+
+    if (filters.type) {
+      query.type = filters.type;
+    }
+
+    if (filters.promotionId) {
+      query.promotionId = filters.promotionId;
+    }
+
+    if (filters.name) {
+      query.name = {
+        $regex: filters.name,
+        $options: 'i',
+      };
+    }
+
+    const [items, total] = await Promise.all([
+      this.promotionCatalogModel
+        .find(query)
+        .sort({ updatedAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .lean<PromotionCatalog[]>()
+        .exec(),
+      this.promotionCatalogModel.countDocuments(query).exec(),
     ]);
 
     return {
