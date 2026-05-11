@@ -10,6 +10,7 @@ import { MongoModule } from '@app/module/Mongo.module';
 import { PromotionAutomationService } from '@app/service/PromotionAutomation.service';
 import { ActivatePromotions } from '@core/interactors/promotion/ActivatePromotions';
 import { DeactivatePromotions } from '@core/interactors/promotion/DeactivatePromotions';
+import { GetPromotionCatalogs } from '@core/interactors/promotion/GetPromotionCatalogs';
 import { GetPromotions } from '@core/interactors/promotion/GetPromotions';
 import { SaveAllPromotion } from '@core/interactors/promotion/SaveAllPromotion';
 import { SyncAllPromotions } from '@core/interactors/promotion/SyncAllPromotions';
@@ -37,6 +38,14 @@ import { SyncOnePromotion } from '@core/interactors/promotion/SyncOnePromotion';
       provide: 'GetPromotions',
       useFactory: async (promotionRepository: MongoPromotionRepository) =>
         new GetPromotions({
+          promotionRepository,
+        }),
+      inject: [MongoPromotionRepository],
+    },
+    {
+      provide: 'GetPromotionCatalogs',
+      useFactory: async (promotionRepository: MongoPromotionRepository) =>
+        new GetPromotionCatalogs({
           promotionRepository,
         }),
       inject: [MongoPromotionRepository],

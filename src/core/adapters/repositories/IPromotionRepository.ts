@@ -1,5 +1,5 @@
 import { Promotion, PromotionStatus } from '@core/entities/Promotion';
-import { PromotionCatalog } from '@core/entities/PromotionCatalog';
+import { PromotionCatalog, PromotionCatalogStatus, PromotionType } from '@core/entities/PromotionCatalog';
 
 export interface PromotionFilters {
   status?: PromotionStatus;
@@ -17,6 +17,23 @@ export interface PaginatedPromotionsResult {
   totalPages: number;
 }
 
+export interface PromotionCatalogFilters {
+  status?: PromotionCatalogStatus;
+  type?: PromotionType;
+  promotionId?: string;
+  name?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface PaginatedPromotionCatalogsResult {
+  items: PromotionCatalog[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
 export interface PromotionRepository {
   saveAll(promotions: Promotion[]): Promise<void>;
   saveCatalogs(catalogs: PromotionCatalog[]): Promise<void>;
@@ -26,4 +43,5 @@ export interface PromotionRepository {
   findActiveBatch(afterId?: string, limit?: number): Promise<Promotion[]>;
   update(promotion: Promotion): Promise<void>;
   findAll(filters: PromotionFilters): Promise<PaginatedPromotionsResult>;
+  findCatalogs(filters: PromotionCatalogFilters): Promise<PaginatedPromotionCatalogsResult>;
 }

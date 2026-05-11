@@ -2,9 +2,11 @@ import { BadRequestException, Body, Controller, Get, Inject, Post, Query } from 
 import { ActivatePromotions } from '@core/interactors/promotion/ActivatePromotions';
 import { DeactivatePromotions } from '@core/interactors/promotion/DeactivatePromotions';
 import { GetPromotions } from '@core/interactors/promotion/GetPromotions';
+import { GetPromotionCatalogs } from '@core/interactors/promotion/GetPromotionCatalogs';
 import { SyncAllPromotions } from '@core/interactors/promotion/SyncAllPromotions';
 import { SyncOnePromotion } from '@core/interactors/promotion/SyncOnePromotion';
 import { GetPromotionsDto } from '@app/controller/promotions/GetPromotions.dto';
+import { GetPromotionCatalogsDto } from '@app/controller/promotions/GetPromotionCatalogs.dto';
 import { RunProcessDto } from '@app/controller/promotions/RunProcess.dto';
 import { SyncOnePromotionDto } from '@app/controller/promotions/SyncOnePromotion.dto';
 import { PromotionStatus } from '@core/entities/Promotion';
@@ -14,6 +16,8 @@ export class PromotionsController {
   constructor(
     @Inject('GetPromotions')
     private readonly getPromotions: GetPromotions,
+    @Inject('GetPromotionCatalogs')
+    private readonly getPromotionCatalogs: GetPromotionCatalogs,
     @Inject('SyncAllPromotions')
     private readonly syncAllPromotions: SyncAllPromotions,
     @Inject('SyncOnePromotion')
@@ -27,6 +31,11 @@ export class PromotionsController {
   @Get()
   async list(@Query() query: GetPromotionsDto) {
     return this.getPromotions.findWithFilters(query);
+  }
+
+  @Get('catalogs')
+  async listCatalogs(@Query() query: GetPromotionCatalogsDto) {
+    return this.getPromotionCatalogs.findWithFilters(query);
   }
 
   @Get('active')
