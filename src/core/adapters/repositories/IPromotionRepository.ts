@@ -34,6 +34,22 @@ export interface PaginatedPromotionCatalogsResult {
   totalPages: number;
 }
 
+export interface PromotionStatusBreakdown {
+  total: number;
+  active: number;
+  synced: number;
+  deleted: number;
+  finished: number;
+  failedActivation: number;
+}
+
+export interface PromotionStatsResult {
+  total: number;
+  smart: PromotionStatusBreakdown;
+  deal: PromotionStatusBreakdown;
+  preNegotiated: PromotionStatusBreakdown;
+}
+
 export interface PromotionRepository {
   saveAll(promotions: Promotion[]): Promise<void>;
   saveCatalogs(catalogs: PromotionCatalog[]): Promise<void>;
@@ -44,4 +60,5 @@ export interface PromotionRepository {
   update(promotion: Promotion): Promise<void>;
   findAll(filters: PromotionFilters): Promise<PaginatedPromotionsResult>;
   findCatalogs(filters: PromotionCatalogFilters): Promise<PaginatedPromotionCatalogsResult>;
+  getStats(): Promise<PromotionStatsResult>;
 }

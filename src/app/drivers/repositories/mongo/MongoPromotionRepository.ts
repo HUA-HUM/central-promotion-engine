@@ -8,8 +8,10 @@ import {
   PromotionCatalogFilters,
   PromotionFilters,
   PromotionRepository,
+  PromotionStatsResult,
+  PromotionStatusBreakdown,
 } from '@core/adapters/repositories/IPromotionRepository';
-import { PromotionCatalog } from '@core/entities/PromotionCatalog';
+import { PromotionCatalog, PromotionType } from '@core/entities/PromotionCatalog';
 
 @Injectable()
 export class MongoPromotionRepository implements PromotionRepository {
@@ -254,5 +256,106 @@ export class MongoPromotionRepository implements PromotionRepository {
       limit,
       totalPages: total === 0 ? 0 : Math.ceil(total / limit),
     };
+  }
+
+  async getStats(): Promise<PromotionStatsResult> {
+    const rows = await this.promotionModel.aggregate<{
+      _id: {
+        type: PromotionType;
+        status: PromotionStatus;
+      };
+      count: number;
+    }>([
+      {
+        $group: {
+          _id: {
+            type: '$type',
+            status: '$status',
+          },
+          count: {
+            $sum: 1,
+          },
+        },
+      },
+    ]).exec();
+
+    const smart = this.createEmptyBreakdown();
+    const deal = this.createEmptyBreakdown();
+    const preNegotiated = this.createEmptyBreakdown();
+
+    for (const row of rows) {
+      const bucket = this.resolveBucket(row._id.type, {
+        smart,
+        deal,
+        preNegotiated,
+      });
+
+      if (!bucket) {
+        continue;
+      }
+
+      bucket.total += row.count;
+
+      if (row._id.status === PromotionStatus.ACTIVE) {
+        bucket.active += row.count;
+      }
+
+      if (row._id.status === PromotionStatus.SYNCED) {
+        bucket.synced += row.count;
+      }
+
+      if (row._id.status === PromotionStatus.DELETED) {
+        bucket.deleted += row.count;
+      }
+
+      if (row._id.status === PromotionStatus.FINISHED) {
+        bucket.finished += row.count;
+      }
+
+      if (row._id.status === PromotionStatus.FAILED_ACTIVATION) {
+        bucket.failedActivation += row.count;
+      }
+    }
+
+    return {
+      total: smart.total + deal.total + preNegotiated.total,
+      smart,
+      deal,
+      preNegotiated,
+    };
+  }
+
+  private createEmptyBreakdown(): PromotionStatusBreakdown {
+    return {
+      total: 0,
+      active: 0,
+      synced: 0,
+      deleted: 0,
+      finished: 0,
+      failedActivation: 0,
+    };
+  }
+
+  private resolveBucket(
+    type: PromotionType,
+    buckets: {
+      smart: PromotionStatusBreakdown;
+      deal: PromotionStatusBreakdown;
+      preNegotiated: PromotionStatusBreakdown;
+    },
+  ): PromotionStatusBreakdown | null {
+    if (type === PromotionType.SMART) {
+      return buckets.smart;
+    }
+
+    if (type === PromotionType.DEAL) {
+      return buckets.deal;
+    }
+
+    if (type === PromotionType.PRE_NEGOTIATED) {
+      return buckets.preNegotiated;
+    }
+
+    return null;
   }
 }
