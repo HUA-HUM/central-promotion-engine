@@ -12,6 +12,7 @@ import { ActivatePromotions } from '@core/interactors/promotion/ActivatePromotio
 import { DeactivatePromotions } from '@core/interactors/promotion/DeactivatePromotions';
 import { GetPromotionCatalogs } from '@core/interactors/promotion/GetPromotionCatalogs';
 import { GetPromotions } from '@core/interactors/promotion/GetPromotions';
+import { GetPromotionStats } from '@core/interactors/promotion/GetPromotionStats';
 import { SaveAllPromotion } from '@core/interactors/promotion/SaveAllPromotion';
 import { SyncAllPromotions } from '@core/interactors/promotion/SyncAllPromotions';
 import { SyncOnePromotion } from '@core/interactors/promotion/SyncOnePromotion';
@@ -46,6 +47,14 @@ import { SyncOnePromotion } from '@core/interactors/promotion/SyncOnePromotion';
       provide: 'GetPromotionCatalogs',
       useFactory: async (promotionRepository: MongoPromotionRepository) =>
         new GetPromotionCatalogs({
+          promotionRepository,
+        }),
+      inject: [MongoPromotionRepository],
+    },
+    {
+      provide: 'GetPromotionStats',
+      useFactory: async (promotionRepository: MongoPromotionRepository) =>
+        new GetPromotionStats({
           promotionRepository,
         }),
       inject: [MongoPromotionRepository],

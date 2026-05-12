@@ -3,6 +3,7 @@ import { ActivatePromotions } from '@core/interactors/promotion/ActivatePromotio
 import { DeactivatePromotions } from '@core/interactors/promotion/DeactivatePromotions';
 import { GetPromotions } from '@core/interactors/promotion/GetPromotions';
 import { GetPromotionCatalogs } from '@core/interactors/promotion/GetPromotionCatalogs';
+import { GetPromotionStats } from '@core/interactors/promotion/GetPromotionStats';
 import { SyncAllPromotions } from '@core/interactors/promotion/SyncAllPromotions';
 import { SyncOnePromotion } from '@core/interactors/promotion/SyncOnePromotion';
 import { GetPromotionsDto } from '@app/controller/promotions/GetPromotions.dto';
@@ -18,6 +19,8 @@ export class PromotionsController {
     private readonly getPromotions: GetPromotions,
     @Inject('GetPromotionCatalogs')
     private readonly getPromotionCatalogs: GetPromotionCatalogs,
+    @Inject('GetPromotionStats')
+    private readonly getPromotionStats: GetPromotionStats,
     @Inject('SyncAllPromotions')
     private readonly syncAllPromotions: SyncAllPromotions,
     @Inject('SyncOnePromotion')
@@ -36,6 +39,11 @@ export class PromotionsController {
   @Get('catalogs')
   async listCatalogs(@Query() query: GetPromotionCatalogsDto) {
     return this.getPromotionCatalogs.findWithFilters(query);
+  }
+
+  @Get('stats')
+  async stats() {
+    return this.getPromotionStats.execute();
   }
 
   @Get('active')
