@@ -6,6 +6,7 @@ import { IAPIMercadolibreApiRepository } from '@core/adapters/repositories/merca
 import { IAPIPriceApiRepository } from '@core/adapters/repositories/price-api/IAPIPriceApiRepository';
 import { PromotionRepository } from '@core/adapters/repositories/IPromotionRepository';
 import { Promotion, PromotionStatus } from '@core/entities/Promotion';
+import { PromotionType } from '@core/entities/PromotionCatalog';
 import { PromotionModelsRegistry } from '@core/interactors/promotion/models/PromotionModelsRegistry';
 import {
   PriceMetricsBulkResolver,
@@ -223,7 +224,9 @@ export class DeactivatePromotions {
       ...promotion,
       prices: {
         ...promotion.prices,
-        suggestedPrice: currentSalePrice,
+        ...(promotion.type === PromotionType.DEAL
+          ? { maxPrice: currentSalePrice }
+          : { suggestedPrice: currentSalePrice }),
       },
       economics: {
         ...promotion.economics,
@@ -370,9 +373,9 @@ export class DeactivatePromotions {
         throw new Error(`Missing listingTypeId for item ${promotion.itemId}`);
       }
 
-      const salePrice = promotion.prices.suggestedPrice;
-      if (salePrice == null) {
-        throw new Error(`Missing suggestedPrice for item ${promotion.itemId}`);
+      const salePrice = this.resolveProfitabilitySalePrice(promotion);
+      if (!Number.isFinite(salePrice)) {
+        throw new Error(`Missing profitability sale price for item ${promotion.itemId}`);
       }
 
       return {
@@ -421,6 +424,7 @@ export class DeactivatePromotions {
       );
       const pricePasses = this.salePriceExceedsCost(updatedPromotion);
       const profitablePasses = updatedPromotion.economics.profitable === true;
+      const evaluatedSalePrice = this.resolveProfitabilitySalePrice(updatedPromotion);
 
       if (profitabilityPasses && pricePasses && profitablePasses) {
         await this.builder.promotionRepository.update(updatedPromotion);
@@ -432,7 +436,7 @@ export class DeactivatePromotions {
             updatedBy: input.updatedBy,
             promotionId: promotion.promotionId,
             itemId: promotion.itemId,
-            suggestedPrice: updatedPromotion.prices.suggestedPrice,
+            salePrice: evaluatedSalePrice,
             cost: updatedPromotion.economics.cost,
             profitability: updatedPromotion.economics.profitability,
             sellerPercentage: context.detail.sellerPercentage,
@@ -450,7 +454,7 @@ export class DeactivatePromotions {
           updatedBy: input.updatedBy,
           promotionId: promotion.promotionId,
           itemId: promotion.itemId,
-          suggestedPrice: updatedPromotion.prices.suggestedPrice,
+          salePrice: evaluatedSalePrice,
           cost: updatedPromotion.economics.cost,
           profitability: updatedPromotion.economics.profitability,
           sellerPercentage: context.detail.sellerPercentage,
@@ -469,7 +473,16 @@ export class DeactivatePromotions {
       );
       return 'success';
     } catch (caughtError) {
-      await this.markAsFailed(promotion, input, caughtError);
+      const promotionToPersist =
+        metrics && !error
+          ? this.buildPromotionWithUpdatedMetrics(
+              promotion,
+              context.detail.salePrice,
+              metrics,
+              input,
+            )
+          : promotion;
+      await this.markAsFailed(promotionToPersist, input, caughtError);
       return 'failure';
     }
   }
@@ -556,11 +569,22 @@ export class DeactivatePromotions {
   }
 
   private salePriceExceedsCost(promotion: Promotion): boolean {
-    const salePrice =
-      promotion.prices.suggestedPrice ??
-      Number.NEGATIVE_INFINITY;
+    const salePrice = this.resolveProfitabilitySalePrice(promotion);
     const cost = promotion.economics.cost ?? Number.POSITIVE_INFINITY;
 
     return salePrice > cost;
+  }
+
+  private resolveProfitabilitySalePrice(promotion: Promotion): number {
+    if (promotion.type === PromotionType.DEAL) {
+      return (
+        promotion.prices.maxPrice ??
+        promotion.prices.suggestedPrice ??
+        promotion.prices.originalPrice ??
+        Number.NEGATIVE_INFINITY
+      );
+    }
+
+    return promotion.prices.suggestedPrice ?? Number.NEGATIVE_INFINITY;
   }
 }
