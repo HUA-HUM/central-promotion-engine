@@ -10,7 +10,7 @@ import { ProcessResult } from '@core/adapters/dto/ProcessResult';
 import { Logger } from '@core/drivers/logger/Logger';
 import { Promotion } from '@core/entities/Promotion';
 import { PromotionStatus } from '@core/entities/Promotion';
-import { PromotionCatalog } from '@core/entities/PromotionCatalog';
+import { PromotionCatalog, PromotionType } from '@core/entities/PromotionCatalog';
 import {
   PromotionBuilderInput,
 } from '@core/interactors/promotion/models/Promotion';
@@ -202,7 +202,11 @@ export class SyncAllPromotions {
               sku: command.itemDetail.sku,
               categoryId: command.itemDetail.categoryId,
               publicationType: command.itemDetail.listingTypeId,
-              salePrice: command.eligibleItem.suggestedPrice ?? command.itemDetail.price ?? 0,
+              salePrice: this.resolveMetricsSalePrice(
+                command.promotionCatalog.type,
+                command.eligibleItem,
+                command.itemDetail,
+              ),
               meliContributionPercentage: command.eligibleItem.meliPercentage,
             },
           }),
@@ -345,6 +349,23 @@ export class SyncAllPromotions {
     }
 
     await this.builder.saveAllPromotion.saveAll(promotions);
+  }
+
+  private resolveMetricsSalePrice(
+    promotionType: PromotionType,
+    eligibleItem: EligibleItem,
+    itemDetail: ItemDetail,
+  ): number {
+    if (promotionType === PromotionType.DEAL) {
+      return (
+        eligibleItem.maxPrice ??
+        eligibleItem.suggestedPrice ??
+        itemDetail.price ??
+        0
+      );
+    }
+
+    return eligibleItem.suggestedPrice ?? itemDetail.price ?? 0;
   }
 
   private async resolveExistingMlas(params: {

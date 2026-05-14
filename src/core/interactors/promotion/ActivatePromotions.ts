@@ -1,5 +1,6 @@
 import { AppConfig } from '@app/drivers/config/AppConfig';
 import { ProcessResult } from '@core/adapters/dto/ProcessResult';
+import { IAPIPriceApiRepository } from '@core/adapters/repositories/price-api/IAPIPriceApiRepository';
 import { Logger } from '@core/drivers/logger/Logger';
 import {
   ActivatePromotionCommand,
@@ -7,6 +8,7 @@ import {
 } from '@core/adapters/repositories/mercadolibre/IAPIMercadolibreApiRepository';
 import { PromotionRepository } from '@core/adapters/repositories/IPromotionRepository';
 import { Promotion, PromotionStatus } from '@core/entities/Promotion';
+import { PromotionType } from '@core/entities/PromotionCatalog';
 import { PromotionModelsRegistry } from '@core/interactors/promotion/models/PromotionModelsRegistry';
 
 export interface ActivatePromotionsInput {
@@ -17,6 +19,7 @@ export interface ActivatePromotionsInput {
 export interface ActivatePromotionsBuilder {
   promotionRepository: PromotionRepository;
   mercadolibreApiRepository: IAPIMercadolibreApiRepository;
+  priceApiRepository: IAPIPriceApiRepository;
   config: AppConfig;
 }
 
@@ -124,10 +127,7 @@ export class ActivatePromotions {
       return false;
     }
 
-    const salePrice =
-      promotion.prices.suggestedPrice ??
-      promotion.prices.originalPrice ??
-      Number.NEGATIVE_INFINITY;
+    const salePrice = this.resolveProfitabilitySalePrice(promotion);
     const cost = promotion.economics.cost ?? Number.POSITIVE_INFINITY;
 
     return salePrice > cost;
@@ -168,28 +168,30 @@ export class ActivatePromotions {
       return 'skipped';
     }
 
-    if (!this.meetsProfitabilityRules(promotion)) {
-      return 'skipped';
-    }
-
     try {
+      const revalidatedPromotion = await this.revalidatePromotion(promotion, input);
+
+      if (!this.meetsProfitabilityRules(revalidatedPromotion)) {
+        return 'skipped';
+      }
+
       const response = await this.builder.mercadolibreApiRepository.activatePromotion(
-        this.buildActivateCommand(promotion),
+        this.buildActivateCommand(revalidatedPromotion),
       );
 
       const updatedPromotion: Promotion = {
-        ...promotion,
+        ...revalidatedPromotion,
         status: PromotionStatus.ACTIVE,
-        offerId: response.offerId ?? promotion.offerId,
+        offerId: response.offerId ?? revalidatedPromotion.offerId,
         metadata: {
-          ...promotion.metadata,
+          ...revalidatedPromotion.metadata,
           activatedAt: new Date(),
           updatedBy: input.updatedBy,
           sourceProcess: input.sourceProcess,
           statusReason: 'Promotion activated automatically',
         },
         auditTrail: [
-          ...promotion.auditTrail,
+          ...revalidatedPromotion.auditTrail,
           {
             process: input.sourceProcess,
             status: PromotionStatus.ACTIVE,
@@ -205,8 +207,8 @@ export class ActivatePromotions {
           message: 'Promotion activated',
           process: 'activate',
           sourceProcess: input.sourceProcess,
-          promotionId: promotion.promotionId,
-          itemId: promotion.itemId,
+          promotionId: revalidatedPromotion.promotionId,
+          itemId: revalidatedPromotion.itemId,
           offerId: updatedPromotion.offerId,
           updatedBy: input.updatedBy,
         }),
@@ -215,18 +217,19 @@ export class ActivatePromotions {
       return 'success';
     } catch (error: unknown) {
       const reason = error instanceof Error ? error.message : 'Unknown activation error';
+      const revalidatedPromotion = await this.tryRevalidatePromotionOnFailure(promotion, input);
       await this.builder.promotionRepository.update({
-        ...promotion,
+        ...revalidatedPromotion,
         status: PromotionStatus.FAILED_ACTIVATION,
         metadata: {
-          ...promotion.metadata,
+          ...revalidatedPromotion.metadata,
           updatedBy: input.updatedBy,
           sourceProcess: input.sourceProcess,
           statusReason: reason,
           reason,
         },
         auditTrail: [
-          ...promotion.auditTrail,
+          ...revalidatedPromotion.auditTrail,
           {
             process: input.sourceProcess,
             status: PromotionStatus.FAILED_ACTIVATION,
@@ -240,14 +243,93 @@ export class ActivatePromotions {
           message: 'Promotion activation failed',
           process: 'activate',
           sourceProcess: input.sourceProcess,
-          promotionId: promotion.promotionId,
-          itemId: promotion.itemId,
+          promotionId: revalidatedPromotion.promotionId,
+          itemId: revalidatedPromotion.itemId,
           reason,
         }),
       );
 
       return 'failure';
     }
+  }
+
+  private async revalidatePromotion(
+    promotion: Promotion,
+    input: ActivatePromotionsInput,
+  ): Promise<Promotion> {
+    const salePrice = this.resolveProfitabilitySalePrice(promotion);
+    if (!Number.isFinite(salePrice)) {
+      throw new Error(`Missing profitability sale price for item ${promotion.itemId}`);
+    }
+
+    const metrics = await this.builder.priceApiRepository.getMetrics({
+      itemId: promotion.itemId,
+      sku: promotion.sku,
+      categoryId: promotion.categoryId,
+      publicationType: promotion.listingTypeId,
+      salePrice,
+      meliContributionPercentage: promotion.terms?.resignation?.mercadolibre?.percentage,
+    });
+
+    return {
+      ...promotion,
+      prices: {
+        ...promotion.prices,
+        ...(promotion.type === PromotionType.DEAL
+          ? { maxPrice: salePrice }
+          : { suggestedPrice: salePrice }),
+      },
+      economics: {
+        ...promotion.economics,
+        cost: metrics.cost ?? promotion.economics.cost,
+        profit: metrics.profit ?? promotion.economics.profit,
+        profitability: metrics.profitability ?? promotion.economics.profitability,
+        margin: metrics.margin ?? promotion.economics.margin,
+        profitable: metrics.profitable ?? promotion.economics.profitable,
+        shouldPause: metrics.shouldPause ?? promotion.economics.shouldPause,
+      },
+      metadata: {
+        ...promotion.metadata,
+        updatedBy: input.updatedBy,
+        sourceProcess: input.sourceProcess,
+        statusReason: 'Promotion revalidated before activation',
+      },
+    };
+  }
+
+  private async tryRevalidatePromotionOnFailure(
+    promotion: Promotion,
+    input: ActivatePromotionsInput,
+  ): Promise<Promotion> {
+    try {
+      return await this.revalidatePromotion(promotion, input);
+    } catch {
+      return {
+        ...promotion,
+        metadata: {
+          ...promotion.metadata,
+          updatedBy: input.updatedBy,
+          sourceProcess: input.sourceProcess,
+        },
+      };
+    }
+  }
+
+  private resolveProfitabilitySalePrice(promotion: Promotion): number {
+    if (promotion.type === PromotionType.DEAL) {
+      return (
+        promotion.prices.maxPrice ??
+        promotion.prices.suggestedPrice ??
+        promotion.prices.originalPrice ??
+        Number.NEGATIVE_INFINITY
+      );
+    }
+
+    return (
+      promotion.prices.suggestedPrice ??
+      promotion.prices.originalPrice ??
+      Number.NEGATIVE_INFINITY
+    );
   }
 
   private async mapWithConcurrency<TItem, TResult>(

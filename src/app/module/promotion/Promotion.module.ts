@@ -103,16 +103,19 @@ import { SyncOnePromotion } from '@core/interactors/promotion/SyncOnePromotion';
       useFactory: async (
         promotionRepository: MongoPromotionRepository,
         mercadolibreApiRepository: NestMercadolibreApiRepository,
+        priceApiRepository: NestPriceApiRepository,
         configService: AppConfigService,
       ) =>
         new ActivatePromotions({
           promotionRepository,
           mercadolibreApiRepository,
+          priceApiRepository,
           config: configService.get(),
         }),
       inject: [
         MongoPromotionRepository,
         NestMercadolibreApiRepository,
+        NestPriceApiRepository,
         AppConfigService,
       ],
     },
