@@ -296,8 +296,16 @@ export class MongoPromotionRepository implements PromotionRepository {
 
       bucket.total += row.count;
 
+      if (row._id.status === PromotionStatus.PENDING) {
+        bucket.pending += row.count;
+      }
+
       if (row._id.status === PromotionStatus.ACTIVE) {
         bucket.active += row.count;
+      }
+
+      if (row._id.status === PromotionStatus.PAUSED) {
+        bucket.paused += row.count;
       }
 
       if (row._id.status === PromotionStatus.SYNCED) {
@@ -312,8 +320,16 @@ export class MongoPromotionRepository implements PromotionRepository {
         bucket.finished += row.count;
       }
 
+      if (row._id.status === PromotionStatus.FAILED_SYNC) {
+        bucket.failedSync += row.count;
+      }
+
       if (row._id.status === PromotionStatus.FAILED_ACTIVATION) {
         bucket.failedActivation += row.count;
+      }
+
+      if (row._id.status === PromotionStatus.FAILED_DEACTIVATION) {
+        bucket.failedDeactivation += row.count;
       }
     }
 
@@ -328,11 +344,15 @@ export class MongoPromotionRepository implements PromotionRepository {
   private createEmptyBreakdown(): PromotionStatusBreakdown {
     return {
       total: 0,
+      pending: 0,
       active: 0,
+      paused: 0,
       synced: 0,
       deleted: 0,
       finished: 0,
+      failedSync: 0,
       failedActivation: 0,
+      failedDeactivation: 0,
     };
   }
 

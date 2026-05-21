@@ -36,11 +36,15 @@ export interface PaginatedPromotionCatalogsResult {
 
 export interface PromotionStatusBreakdown {
   total: number;
+  pending: number;
   active: number;
+  paused: number;
   synced: number;
   deleted: number;
   finished: number;
+  failedSync: number;
   failedActivation: number;
+  failedDeactivation: number;
 }
 
 export interface PromotionStatsResult {
