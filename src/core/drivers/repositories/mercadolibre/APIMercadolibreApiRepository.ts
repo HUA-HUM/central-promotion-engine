@@ -13,7 +13,7 @@ import {
 import { PromotionType } from '@core/entities/PromotionCatalog';
 import { Logger } from '@core/drivers/logger/Logger';
 import { APIHttpClient } from '@core/drivers/repositories/http/APIHttpClient';
-import { AxiosInstance } from 'axios';
+import { AxiosError, AxiosInstance } from 'axios';
 
 export interface APIMercadolibreApiRepositoryConfig {
   axios: AxiosInstance;
@@ -27,6 +27,10 @@ export class APIMercadolibreApiRepository
   extends APIHttpClient
   implements IAPIMercadolibreApiRepository
 {
+  private static readonly ELIGIBLE_ITEMS_PAGE_LIMIT = '50';
+  private static readonly ELIGIBLE_ITEMS_RETRY_ATTEMPTS = 3;
+  private static readonly ELIGIBLE_ITEMS_RETRY_BASE_DELAY_MS = 500;
+
   constructor(private readonly repositoryConfig: APIMercadolibreApiRepositoryConfig) {
     super({
       axios: repositoryConfig.axios,
@@ -94,57 +98,93 @@ export class APIMercadolibreApiRepository
     promotionType: string,
     searchAfter?: string,
   ): Promise<MeliPaginatedResponse<EligibleItem>> {
-    try {
-      const params = new URLSearchParams({
-        promotion_type: promotionType,
-        limit: '50',
-      });
+    const params = new URLSearchParams({
+      promotion_type: promotionType,
+      limit: APIMercadolibreApiRepository.ELIGIBLE_ITEMS_PAGE_LIMIT,
+    });
 
-      if (searchAfter) {
-        params.append('searchAfter', searchAfter);
-      }
-
-      const response = await this.get<MeliPaginatedResponse<MeliEligibleItem>>(
-        `/meli/seller-promotions/${promotionId}/items?${params.toString()}`,
-        { headers: this.headers() },
-      );
-      const results = this.normalizeResults(response.results);
-
-      return {
-        paging: response.paging,
-        results: results.map((item) => ({
-          itemId: item.id,
-          status: item.status,
-          offerId: item.offer_id,
-          originalPrice: item.original_price,
-          minPrice: item.min_discounted_price,
-          maxPrice: item.max_discounted_price,
-          suggestedPrice: item.suggested_discounted_price ?? item.price,
-          sellerPercentage: item.seller_percentage,
-          meliPercentage: item.meli_percentage,
-        })),
-      };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown mercadolibre error';
-      Logger.warn(
-        JSON.stringify({
-          message: `Promotion ${promotionId} of type ${promotionType} has no eligible items or failed to fetch them`,
-          service: 'mercadolibre-api',
-          promotionId,
-          promotionType,
-          searchAfter: searchAfter ?? null,
-          reason: message,
-        }),
-      );
-
-      return {
-        paging: {
-          total: 0,
-          limit: 50,
-        },
-        results: [],
-      };
+    if (searchAfter) {
+      params.append('searchAfter', searchAfter);
     }
+
+    const path = `/meli/seller-promotions/${promotionId}/items?${params.toString()}`;
+
+    for (let attempt = 1; attempt <= APIMercadolibreApiRepository.ELIGIBLE_ITEMS_RETRY_ATTEMPTS; attempt += 1) {
+      try {
+        const response = await this.get<MeliPaginatedResponse<MeliEligibleItem>>(
+          path,
+          { headers: this.headers() },
+        );
+        const results = this.normalizeResults(response.results);
+
+        return {
+          paging: response.paging,
+          results: results.map((item) => ({
+            itemId: item.id,
+            status: item.status,
+            offerId: item.offer_id,
+            originalPrice: item.original_price,
+            minPrice: item.min_discounted_price,
+            maxPrice: item.max_discounted_price,
+            suggestedPrice: item.suggested_discounted_price ?? item.price,
+            sellerPercentage: item.seller_percentage,
+            meliPercentage: item.meli_percentage,
+          })),
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown mercadolibre error';
+        const shouldRetry =
+          attempt < APIMercadolibreApiRepository.ELIGIBLE_ITEMS_RETRY_ATTEMPTS &&
+          this.isRetryableEligibleItemsError(error);
+
+        if (shouldRetry) {
+          Logger.warn(
+            JSON.stringify({
+              message: 'Retrying promotion items page after transient Mercado Libre error',
+              service: 'mercadolibre-api',
+              promotionId,
+              promotionType,
+              searchAfter: searchAfter ?? null,
+              attempt,
+              reason: message,
+            }),
+          );
+
+          await this.sleep(
+            APIMercadolibreApiRepository.ELIGIBLE_ITEMS_RETRY_BASE_DELAY_MS * attempt,
+          );
+          continue;
+        }
+
+        Logger.warn(
+          JSON.stringify({
+            message: `Promotion ${promotionId} of type ${promotionType} has no eligible items or failed to fetch them`,
+            service: 'mercadolibre-api',
+            promotionId,
+            promotionType,
+            searchAfter: searchAfter ?? null,
+            attempts: attempt,
+            reason: message,
+          }),
+        );
+
+        return {
+          paging: {
+            total: 0,
+            limit: Number(APIMercadolibreApiRepository.ELIGIBLE_ITEMS_PAGE_LIMIT),
+          },
+          results: [],
+        };
+      }
+    }
+
+    return {
+      paging: {
+        total: 0,
+        limit: Number(APIMercadolibreApiRepository.ELIGIBLE_ITEMS_PAGE_LIMIT),
+      },
+      results: [],
+    };
   }
 
   async getItemDetail(itemId: string): Promise<ItemDetail> {
@@ -228,5 +268,23 @@ export class APIMercadolibreApiRepository
 
   private normalizeResults<T>(results: T[] | null | undefined): T[] {
     return Array.isArray(results) ? results : [];
+  }
+
+  private isRetryableEligibleItemsError(error: unknown): boolean {
+    if (!(error instanceof AxiosError)) {
+      return false;
+    }
+
+    const status = error.response?.status;
+
+    if (status === undefined) {
+      return true;
+    }
+
+    return status >= 500 || status === 429;
+  }
+
+  private async sleep(milliseconds: number): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, milliseconds));
   }
 }

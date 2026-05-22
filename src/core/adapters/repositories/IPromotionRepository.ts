@@ -61,6 +61,7 @@ export interface PromotionRepository {
   findPendingActivationBatch(afterId?: string, limit?: number): Promise<Promotion[]>;
   findActive(): Promise<Promotion[]>;
   findActiveBatch(afterId?: string, limit?: number): Promise<Promotion[]>;
+  hasActivePromotionForItem(itemId: string, type: PromotionType, excludingPromotionId?: string): Promise<boolean>;
   update(promotion: Promotion): Promise<void>;
   findAll(filters: PromotionFilters): Promise<PaginatedPromotionsResult>;
   findCatalogs(filters: PromotionCatalogFilters): Promise<PaginatedPromotionCatalogsResult>;

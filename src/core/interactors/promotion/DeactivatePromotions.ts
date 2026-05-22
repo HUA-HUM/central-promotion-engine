@@ -83,14 +83,20 @@ export class DeactivatePromotions {
       lastProcessedId = this.resolveLastProcessedId(promotions, lastProcessedId);
 
       const activeMlas = promotions.map((promotion) => promotion.itemId);
-      const existingMlasResponse = activeMlas.length
-        ? await this.fetchExistingMlas(activeMlas)
-        : { items: [], total: 0 };
-      const existingMlas = new Set(
-        (existingMlasResponse.items ?? [])
-          .filter((item) => item.exists)
-          .map((item) => item.mla),
-      );
+      // Deprecated temporarily:
+      // We are skipping Madre `campaign-mlas/exists/bulk` validation for deactivate
+      // because transient timeouts there are interrupting valid profitability rechecks.
+      // Keep the old implementation commented here for an easy rollback.
+      //
+      // const existingMlasResponse = activeMlas.length
+      //   ? await this.fetchExistingMlas(activeMlas)
+      //   : { items: [], total: 0 };
+      // const existingMlas = new Set(
+      //   (existingMlasResponse.items ?? [])
+      //     .filter((item) => item.exists)
+      //     .map((item) => item.mla),
+      // );
+      const existingMlas = new Set(activeMlas);
 
       const metricsCandidates: PromotionMetricsCandidate[] = [];
 

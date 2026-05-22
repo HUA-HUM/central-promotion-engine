@@ -375,82 +375,93 @@ export class SyncAllPromotions {
     processName: string;
     failedPromotions: Promotion[];
   }): Promise<{ existingMlas: Set<string>; failureCount: number }> {
-    const existingMlas = new Set<string>();
-    let failureCount = 0;
-    const eligibleItemChunks = this.chunkArray(
-      params.eligibleItems,
-      SyncAllPromotions.CAMPAIGN_EXISTS_BULK_LIMIT,
-    );
+    // Deprecated temporarily:
+    // We are skipping Madre `campaign-mlas/exists/bulk` validation for sync because
+    // transient timeouts there are generating large batches of FAILED_SYNC items.
+    // Keep the old implementation commented here for an easy rollback once Madre
+    // becomes stable again.
+    //
+    // const existingMlas = new Set<string>();
+    // let failureCount = 0;
+    // const eligibleItemChunks = this.chunkArray(
+    //   params.eligibleItems,
+    //   SyncAllPromotions.CAMPAIGN_EXISTS_BULK_LIMIT,
+    // );
+    //
+    // for (const chunk of eligibleItemChunks) {
+    //   try {
+    //     const response = await this.builder.campaignMlaApiRepository.existsBulk(
+    //       chunk.map((item) => item.itemId),
+    //     );
+    //     const existingItems = new Map(
+    //       (response.items ?? []).map((item) => [item.mla, item.exists]),
+    //     );
+    //
+    //     for (const eligibleItem of chunk) {
+    //       if (existingItems.get(eligibleItem.itemId) === true) {
+    //         existingMlas.add(eligibleItem.itemId);
+    //         continue;
+    //       }
+    //
+    //       const reason = existingItems.has(eligibleItem.itemId)
+    //         ? 'Item is not present in Madre campaign repository'
+    //         : 'Item was not returned by Madre campaign repository';
+    //
+    //       params.failedPromotions.push(
+    //         this.buildFailedSyncPromotion({
+    //           promotionCatalog: params.promotionCatalog,
+    //           eligibleItem,
+    //           input: params.input,
+    //           reason,
+    //         }),
+    //       );
+    //       failureCount += 1;
+    //
+    //       Logger.error(
+    //         JSON.stringify({
+    //           message: 'Promotion sync item failed',
+    //           process: params.processName,
+    //           sourceProcess: params.input.sourceProcess,
+    //           itemId: eligibleItem.itemId,
+    //           promotionId: params.promotionCatalog.promotionId,
+    //           reason,
+    //         }),
+    //       );
+    //     }
+    //   } catch (error) {
+    //     const reason = error instanceof Error ? error.message : 'Unknown campaign mla sync error';
+    //
+    //     for (const eligibleItem of chunk) {
+    //       params.failedPromotions.push(
+    //         this.buildFailedSyncPromotion({
+    //           promotionCatalog: params.promotionCatalog,
+    //           eligibleItem,
+    //           input: params.input,
+    //           reason,
+    //         }),
+    //       );
+    //       failureCount += 1;
+    //
+    //       Logger.error(
+    //         JSON.stringify({
+    //           message: 'Promotion sync item failed',
+    //           process: params.processName,
+    //           sourceProcess: params.input.sourceProcess,
+    //           itemId: eligibleItem.itemId,
+    //           promotionId: params.promotionCatalog.promotionId,
+    //           reason,
+    //         }),
+    //       );
+    //     }
+    //   }
+    // }
+    //
+    // return { existingMlas, failureCount };
 
-    for (const chunk of eligibleItemChunks) {
-      try {
-        const response = await this.builder.campaignMlaApiRepository.existsBulk(
-          chunk.map((item) => item.itemId),
-        );
-        const existingItems = new Map(
-          (response.items ?? []).map((item) => [item.mla, item.exists]),
-        );
-
-        for (const eligibleItem of chunk) {
-          if (existingItems.get(eligibleItem.itemId) === true) {
-            existingMlas.add(eligibleItem.itemId);
-            continue;
-          }
-
-          const reason = existingItems.has(eligibleItem.itemId)
-            ? 'Item is not present in Madre campaign repository'
-            : 'Item was not returned by Madre campaign repository';
-
-          params.failedPromotions.push(
-            this.buildFailedSyncPromotion({
-              promotionCatalog: params.promotionCatalog,
-              eligibleItem,
-              input: params.input,
-              reason,
-            }),
-          );
-          failureCount += 1;
-
-          Logger.error(
-            JSON.stringify({
-              message: 'Promotion sync item failed',
-              process: params.processName,
-              sourceProcess: params.input.sourceProcess,
-              itemId: eligibleItem.itemId,
-              promotionId: params.promotionCatalog.promotionId,
-              reason,
-            }),
-          );
-        }
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : 'Unknown campaign mla sync error';
-
-        for (const eligibleItem of chunk) {
-          params.failedPromotions.push(
-            this.buildFailedSyncPromotion({
-              promotionCatalog: params.promotionCatalog,
-              eligibleItem,
-              input: params.input,
-              reason,
-            }),
-          );
-          failureCount += 1;
-
-          Logger.error(
-            JSON.stringify({
-              message: 'Promotion sync item failed',
-              process: params.processName,
-              sourceProcess: params.input.sourceProcess,
-              itemId: eligibleItem.itemId,
-              promotionId: params.promotionCatalog.promotionId,
-              reason,
-            }),
-          );
-        }
-      }
-    }
-
-    return { existingMlas, failureCount };
+    return {
+      existingMlas: new Set(params.eligibleItems.map((item) => item.itemId)),
+      failureCount: 0,
+    };
   }
 
   private chunkArray<T>(items: T[], size: number): T[][] {
