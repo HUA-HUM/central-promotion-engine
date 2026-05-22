@@ -153,6 +153,25 @@ export class MongoPromotionRepository implements PromotionRepository {
       .exec();
   }
 
+  async hasActivePromotionForItem(
+    itemId: string,
+    type: PromotionType,
+    excludingPromotionId?: string,
+  ): Promise<boolean> {
+    const query: FilterQuery<Promotion> = {
+      itemId,
+      type,
+      status: PromotionStatus.ACTIVE,
+    };
+
+    if (excludingPromotionId) {
+      query.promotionId = { $ne: excludingPromotionId };
+    }
+
+    const document = await this.promotionModel.exists(query).exec();
+    return document !== null;
+  }
+
   async update(promotion: Promotion): Promise<void> {
     const { auditTrail, ...promotionWithoutAuditTrail } = promotion;
     const latestAudit = auditTrail?.[auditTrail.length - 1];
