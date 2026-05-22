@@ -38,15 +38,10 @@ export class DealPromotion extends GenericPromotion {
     promotion: Promotion,
     action: 'pause' | 'delete',
   ): PauseOrDeletePromotionCommand {
-    if (!promotion.offerId) {
-      throw new Error(`Missing offerId for active DEAL promotion on item ${promotion.itemId}`);
-    }
-
     return {
       promotionId: promotion.promotionId,
       promotionType: PromotionType.DEAL,
       itemId: promotion.itemId,
-      offerId: promotion.offerId,
       action,
     };
   }
