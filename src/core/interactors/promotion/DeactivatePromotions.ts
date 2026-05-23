@@ -51,12 +51,26 @@ export class DeactivatePromotions {
   }
 
   async execute(input: DeactivatePromotionsInput): Promise<ProcessResult> {
+    return this.executeWithBatchFetcher(
+      input,
+      (afterId) =>
+        this.builder.promotionRepository.findActiveBatch(
+          afterId,
+          DeactivatePromotions.BATCH_SIZE,
+        ),
+      'Promotion deactivation process started',
+      'Promotion deactivation process finished',
+      'deactivate',
+    );
+  }
+
+  async retryFailed(input: DeactivatePromotionsInput): Promise<ProcessResult> {
     const startedAt = new Date();
 
     Logger.info(
       JSON.stringify({
-        message: 'Promotion deactivation process started',
-        process: 'deactivate',
+        message: 'Failed promotion deactivation retry process started',
+        process: 'deactivate-failed',
         sourceProcess: input.sourceProcess,
         updatedBy: input.updatedBy,
         startedAt: startedAt.toISOString(),
@@ -70,10 +84,98 @@ export class DeactivatePromotions {
     let lastProcessedId: string | undefined;
 
     while (true) {
-      const promotions = await this.builder.promotionRepository.findActiveBatch(
+      const promotions = await this.builder.promotionRepository.findFailedDeactivationBatch(
         lastProcessedId,
         DeactivatePromotions.BATCH_SIZE,
       );
+
+      if (promotions.length === 0) {
+        break;
+      }
+
+      total += promotions.length;
+      lastProcessedId = this.resolveLastProcessedId(promotions, lastProcessedId);
+
+      const results = await this.mapWithConcurrency(
+        promotions,
+        DeactivatePromotions.DEACTIVATION_CONCURRENCY,
+        async (promotion) => this.retryFailedPromotion(promotion, input),
+      );
+
+      for (const result of results) {
+        if (result === 'success') {
+          success += 1;
+          continue;
+        }
+
+        if (result === 'failure') {
+          failure += 1;
+          continue;
+        }
+
+        skipped += 1;
+      }
+    }
+
+    const processResult: ProcessResult = {
+      process: 'deactivate-failed',
+      total,
+      success,
+      failure,
+      skipped,
+    };
+
+    const finishedAt = new Date();
+    const durationMinutes = Number(
+      ((finishedAt.getTime() - startedAt.getTime()) / 60000).toFixed(2),
+    );
+
+    Logger.info(
+      JSON.stringify({
+        message: 'Failed promotion deactivation retry process finished',
+        process: processResult.process,
+        sourceProcess: input.sourceProcess,
+        updatedBy: input.updatedBy,
+        startedAt: startedAt.toISOString(),
+        finishedAt: finishedAt.toISOString(),
+        durationMinutes,
+        total: processResult.total,
+        success: processResult.success,
+        failure: processResult.failure,
+        skipped: processResult.skipped,
+      }),
+    );
+
+    return processResult;
+  }
+
+  private async executeWithBatchFetcher(
+    input: DeactivatePromotionsInput,
+    batchFetcher: (afterId?: string) => Promise<Promotion[]>,
+    startedMessage: string,
+    finishedMessage: string,
+    processName: ProcessResult['process'],
+  ): Promise<ProcessResult> {
+    const startedAt = new Date();
+
+    Logger.info(
+      JSON.stringify({
+        message: startedMessage,
+        process: processName,
+        sourceProcess: input.sourceProcess,
+        updatedBy: input.updatedBy,
+        startedAt: startedAt.toISOString(),
+      }),
+    );
+
+    let success = 0;
+    let failure = 0;
+    let skipped = 0;
+    let total = 0;
+    let lastProcessedId: string | undefined;
+
+    while (true) {
+      const promotions = await batchFetcher(lastProcessedId);
 
       if (promotions.length === 0) {
         break;
@@ -157,7 +259,7 @@ export class DeactivatePromotions {
     }
 
     const result: ProcessResult = {
-      process: 'deactivate',
+      process: processName,
       total,
       success,
       failure,
@@ -171,7 +273,7 @@ export class DeactivatePromotions {
 
     Logger.info(
       JSON.stringify({
-        message: 'Promotion deactivation process finished',
+        message: finishedMessage,
         process: result.process,
         sourceProcess: input.sourceProcess,
         updatedBy: input.updatedBy,
@@ -414,7 +516,25 @@ export class DeactivatePromotions {
 
     try {
       if (error || !metrics) {
-        throw error ?? new Error('Metrics were not resolved');
+        Logger.warn(
+          JSON.stringify({
+            message: 'Price API revalidation failed and promotion will be deactivated defensively',
+            process: 'deactivate',
+            sourceProcess: input.sourceProcess,
+            updatedBy: input.updatedBy,
+            promotionId: promotion.promotionId,
+            itemId: promotion.itemId,
+            reason: error?.message ?? 'Metrics were not resolved',
+          }),
+        );
+
+        await this.deleteOrPauseAndMark(
+          promotion,
+          input,
+          'Price API revalidation failed during deactivation flow',
+          'defensively because profitability could not be revalidated',
+        );
+        return 'success';
       }
 
       const updatedPromotion = this.buildPromotionWithUpdatedMetrics(
@@ -489,6 +609,35 @@ export class DeactivatePromotions {
             )
           : promotion;
       await this.markAsFailed(promotionToPersist, input, caughtError);
+      return 'failure';
+    }
+  }
+
+  private async retryFailedPromotion(
+    promotion: Promotion,
+    input: DeactivatePromotionsInput,
+  ): Promise<'success' | 'failure' | 'skipped'> {
+    try {
+      if (this.isPromotionOutOfDate(promotion)) {
+        await this.markAs(
+          promotion,
+          PromotionStatus.FINISHED,
+          input,
+          'Promotion is outside valid date range',
+          'Promotion finished automatically because it is outside valid date range',
+        );
+        return 'success';
+      }
+
+      await this.deleteOrPauseAndMark(
+        promotion,
+        input,
+        'Retrying previously failed promotion deactivation',
+        'after previous failed deactivation',
+      );
+      return 'success';
+    } catch (error) {
+      await this.markAsFailed(promotion, input, error);
       return 'failure';
     }
   }

@@ -153,6 +153,23 @@ export class MongoPromotionRepository implements PromotionRepository {
       .exec();
   }
 
+  async findFailedDeactivationBatch(afterId?: string, limit = 500): Promise<Promotion[]> {
+    const query: FilterQuery<Promotion> = {
+      status: PromotionStatus.FAILED_DEACTIVATION,
+    };
+
+    if (afterId) {
+      query._id = { $gt: new Types.ObjectId(afterId) };
+    }
+
+    return this.promotionModel
+      .find(query)
+      .sort({ _id: 1 })
+      .limit(limit)
+      .lean<Promotion[]>()
+      .exec();
+  }
+
   async hasActivePromotionForItem(
     itemId: string,
     type: PromotionType,

@@ -106,4 +106,12 @@ export class PromotionsController {
       updatedBy: body.updatedBy ?? 'manual',
     });
   }
+
+  @Post('deactivate-failed')
+  async deactivateFailed(@Body() body: RunProcessDto) {
+    return this.deactivatePromotions.retryFailed({
+      sourceProcess: 'manual-deactivate-failed',
+      updatedBy: body.updatedBy ?? 'manual',
+    });
+  }
 }
