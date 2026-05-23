@@ -629,11 +629,116 @@ export class DeactivatePromotions {
         return 'success';
       }
 
-      await this.deleteOrPauseAndMark(
-        promotion,
+      const itemDetail = await this.builder.mercadolibreApiRepository.getItemDetail(promotion.itemId);
+      const currentSalePrice = itemDetail.price;
+
+      if (!Number.isFinite(currentSalePrice)) {
+        throw new Error(`Missing current Mercado Libre price for item ${promotion.itemId}`);
+      }
+
+      let metrics:
+        | Awaited<ReturnType<IAPIPriceApiRepository['getMetrics']>>
+        | undefined;
+
+      try {
+        metrics = await this.builder.priceApiRepository.getMetrics({
+          itemId: promotion.itemId,
+          sku: itemDetail.sku || promotion.sku,
+          categoryId: itemDetail.categoryId,
+          publicationType: itemDetail.listingTypeId,
+          salePrice: currentSalePrice,
+          meliContributionPercentage: promotion.terms?.resignation?.mercadolibre?.percentage,
+        });
+      } catch (error) {
+        Logger.warn(
+          JSON.stringify({
+            message: 'Price API revalidation failed during failed deactivation retry and promotion will be deactivated defensively',
+            process: 'deactivate-failed',
+            sourceProcess: input.sourceProcess,
+            updatedBy: input.updatedBy,
+            promotionId: promotion.promotionId,
+            itemId: promotion.itemId,
+            reason: error instanceof Error ? error.message : 'Unknown price-api error',
+          }),
+        );
+
+        await this.deleteOrPauseAndMark(
+          {
+            ...promotion,
+            sku: itemDetail.sku || promotion.sku,
+            categoryId: itemDetail.categoryId,
+            listingTypeId: itemDetail.listingTypeId,
+          },
+          input,
+          'Price API revalidation failed during failed deactivation retry',
+          'defensively because profitability could not be revalidated',
+        );
+        return 'success';
+      }
+
+      const updatedPromotion = this.buildPromotionWithUpdatedMetrics(
+        {
+          ...promotion,
+          sku: itemDetail.sku || promotion.sku,
+          categoryId: itemDetail.categoryId,
+          listingTypeId: itemDetail.listingTypeId,
+        },
+        currentSalePrice,
+        metrics,
         input,
-        'Retrying previously failed promotion deactivation',
-        'after previous failed deactivation',
+      );
+
+      const profitabilityPasses = this.profitabilityPasses(
+        updatedPromotion,
+        promotion.terms?.resignation?.seller?.percentage,
+      );
+      const pricePasses = this.salePriceExceedsCost(updatedPromotion);
+      const profitablePasses = updatedPromotion.economics.profitable === true;
+
+      if (profitabilityPasses && pricePasses && profitablePasses) {
+        await this.builder.promotionRepository.update({
+          ...updatedPromotion,
+          status: PromotionStatus.ACTIVE,
+          metadata: {
+            ...updatedPromotion.metadata,
+            updatedBy: input.updatedBy,
+            sourceProcess: input.sourceProcess,
+            reason: undefined,
+            statusReason: 'Failed deactivation promotion revalidated and kept active',
+          },
+          auditTrail: [
+            ...updatedPromotion.auditTrail,
+            {
+              process: input.sourceProcess,
+              status: PromotionStatus.ACTIVE,
+              reason: 'Failed deactivation promotion revalidated and kept active',
+              executedAt: new Date(),
+            },
+          ],
+        });
+
+        Logger.info(
+          JSON.stringify({
+            message: 'Failed deactivation promotion revalidated and kept active',
+            process: 'deactivate-failed',
+            sourceProcess: input.sourceProcess,
+            updatedBy: input.updatedBy,
+            promotionId: promotion.promotionId,
+            itemId: promotion.itemId,
+            salePrice: currentSalePrice,
+            cost: updatedPromotion.economics.cost,
+            profitability: updatedPromotion.economics.profitability,
+            profitable: updatedPromotion.economics.profitable,
+          }),
+        );
+        return 'skipped';
+      }
+
+      await this.deleteOrPauseAndMark(
+        updatedPromotion,
+        input,
+        'Failed deactivation promotion no longer satisfies profitability rules after revalidation',
+        'after failed deactivation revalidation',
       );
       return 'success';
     } catch (error) {
