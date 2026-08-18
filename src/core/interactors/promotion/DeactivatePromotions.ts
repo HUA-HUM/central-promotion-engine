@@ -219,6 +219,11 @@ export class DeactivatePromotions {
           failure += 1;
           continue;
         }
+
+        if (batchPreparationResult.kind === 'skipped') {
+          skipped += 1;
+          continue;
+        }
       }
 
       const metricsRequests: PriceMetricsRequest<PromotionMetricsCandidate>[] = metricsCandidates.map(
@@ -448,8 +453,24 @@ export class DeactivatePromotions {
     | { kind: 'candidate'; candidate: PromotionMetricsCandidate }
     | { kind: 'success' }
     | { kind: 'failure' }
+    | { kind: 'skipped' }
   > {
     try {
+      if (promotion.type === PromotionType.DEAL) {
+        Logger.info(
+          JSON.stringify({
+            message: 'Skipping DEAL deactivation because DEAL promotions require manual deactivation',
+            process: 'deactivate',
+            sourceProcess: input.sourceProcess,
+            promotionId: promotion.promotionId,
+            itemId: promotion.itemId,
+            updatedBy: input.updatedBy,
+          }),
+        );
+
+        return { kind: 'skipped' };
+      }
+
       if (this.isPromotionOutOfDate(promotion)) {
         await this.markAs(
           promotion,
@@ -618,6 +639,21 @@ export class DeactivatePromotions {
     input: DeactivatePromotionsInput,
   ): Promise<'success' | 'failure' | 'skipped'> {
     try {
+      if (promotion.type === PromotionType.DEAL) {
+        Logger.info(
+          JSON.stringify({
+            message: 'Skipping DEAL deactivation retry because DEAL promotions require manual deactivation',
+            process: 'deactivate-failed',
+            sourceProcess: input.sourceProcess,
+            promotionId: promotion.promotionId,
+            itemId: promotion.itemId,
+            updatedBy: input.updatedBy,
+          }),
+        );
+
+        return 'skipped';
+      }
+
       if (this.isPromotionOutOfDate(promotion)) {
         await this.markAs(
           promotion,

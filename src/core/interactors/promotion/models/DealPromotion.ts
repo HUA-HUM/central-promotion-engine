@@ -21,7 +21,8 @@ export class DealPromotion extends GenericPromotion {
   }
 
   buildActivationCommand(promotion: Promotion): ActivatePromotionCommand {
-    const dealPrice = promotion.prices.suggestedPrice ?? promotion.prices.originalPrice;
+    const dealPrice =
+      promotion.prices.maxPrice ?? promotion.prices.suggestedPrice ?? promotion.prices.originalPrice;
     if (dealPrice === undefined) {
       throw new Error(`Missing deal price for item ${promotion.itemId}`);
     }
