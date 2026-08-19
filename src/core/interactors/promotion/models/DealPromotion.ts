@@ -74,7 +74,9 @@ export class DealPromotion extends GenericPromotion {
   }
 
   private resolveDealPrice(eligibleItem: EligibleItem, itemDetail: ItemDetail): number {
-    return eligibleItem.maxPrice ?? eligibleItem.suggestedPrice ?? itemDetail.price ?? 0;
+    return (
+      eligibleItem.maxPrice ?? eligibleItem.suggestedPrice ?? eligibleItem.originalPrice ?? itemDetail.price ?? 0
+    );
   }
 
   buildActivationCommand(promotion: Promotion): ActivatePromotionCommand {

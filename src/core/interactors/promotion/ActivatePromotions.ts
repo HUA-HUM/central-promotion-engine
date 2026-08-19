@@ -183,29 +183,6 @@ export class ActivatePromotions {
       return 'skipped';
     }
 
-    // if (promotion.type === PromotionType.DEAL) {
-    //   const hasAnotherActiveDeal = await this.builder.promotionRepository.hasActivePromotionForItem(
-    //     promotion.itemId,
-    //     PromotionType.DEAL,
-    //     promotion.promotionId,
-    //   );
-    //
-    //   if (hasAnotherActiveDeal) {
-    //     Logger.info(
-    //       JSON.stringify({
-    //         message: 'Skipping DEAL activation because another DEAL promotion is already active for the item',
-    //         process: 'activate',
-    //         sourceProcess: input.sourceProcess,
-    //         promotionId: promotion.promotionId,
-    //         itemId: promotion.itemId,
-    //         updatedBy: input.updatedBy,
-    //       }),
-    //     );
-    //
-    //     return 'skipped';
-    //   }
-    // }
-
     try {
       const revalidatedPromotion = await this.revalidatePromotion(promotion, input);
 
