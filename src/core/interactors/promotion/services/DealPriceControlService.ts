@@ -42,11 +42,24 @@ export class DealPriceControlService {
   private static readonly BINARY_SEARCH_RELATIVE_TOLERANCE = 0.01;
   private static readonly BINARY_SEARCH_MIN_PRICE_TOLERANCE = 1;
 
-  constructor(private readonly builder: DealPriceControlBuilder) {}
+  constructor(private readonly builder: DealPriceControlBuilder) {
+    if (!builder.config.dealPriceControlEnabled) {
+      Logger.info(
+        JSON.stringify({
+          message: 'DEAL price control is disabled, all items will skip it (DEAL_PRICE_CONTROL_ENABLED=false)',
+          process: 'deal-price-control',
+        }),
+      );
+    }
+  }
 
   async evaluate(input: DealPriceControlEvaluateInput): Promise<PromotionPriceControl> {
     if (!this.builder.config.dealPriceControlEnabled) {
-      return this.skipped(input, 'DEAL price control is disabled (DEAL_PRICE_CONTROL_ENABLED=false)');
+      return {
+        controlledBy: 'DEAL',
+        status: 'SKIPPED',
+        reason: 'DEAL price control is disabled (DEAL_PRICE_CONTROL_ENABLED=false)',
+      };
     }
 
     const referenceBasePrice = input.originalPrice ?? input.itemPrice;
