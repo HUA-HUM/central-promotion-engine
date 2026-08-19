@@ -64,6 +64,7 @@ export interface PromotionRepository {
   findFailedDeactivationBatch(afterId?: string, limit?: number): Promise<Promotion[]>;
   hasActivePromotionForItem(itemId: string, type: PromotionType, excludingPromotionId?: string): Promise<boolean>;
   findByItemIds(promotionId: string, itemIds: string[]): Promise<Promotion[]>;
+  findByPromotionId(promotionId: string): Promise<Promotion[]>;
   update(promotion: Promotion): Promise<void>;
   findAll(filters: PromotionFilters): Promise<PaginatedPromotionsResult>;
   findCatalogs(filters: PromotionCatalogFilters): Promise<PaginatedPromotionCatalogsResult>;

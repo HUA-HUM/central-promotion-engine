@@ -200,6 +200,13 @@ export class MongoPromotionRepository implements PromotionRepository {
       .exec();
   }
 
+  async findByPromotionId(promotionId: string): Promise<Promotion[]> {
+    return this.promotionModel
+      .find({ promotionId })
+      .lean<Promotion[]>()
+      .exec();
+  }
+
   async update(promotion: Promotion): Promise<void> {
     const { auditTrail, ...promotionWithoutAuditTrail } = promotion;
     const latestAudit = auditTrail?.[auditTrail.length - 1];

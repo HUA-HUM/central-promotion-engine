@@ -14,8 +14,10 @@ import { MongoPromotionRepository } from '@app/drivers/repositories/mongo/MongoP
 import { MongoModule } from '@app/module/Mongo.module';
 import { PromotionAutomationService } from '@app/service/PromotionAutomation.service';
 import { ActivatePromotions } from '@core/interactors/promotion/ActivatePromotions';
+import { ActivateDealPromotion } from '@core/interactors/promotion/ActivateDealPromotion';
 import { AutomeliMlaControl } from '@core/interactors/promotion/AutomeliMlaControl';
 import { DeactivatePromotions } from '@core/interactors/promotion/DeactivatePromotions';
+import { DeactivateDealPromotion } from '@core/interactors/promotion/DeactivateDealPromotion';
 import { GetPromotionCatalogs } from '@core/interactors/promotion/GetPromotionCatalogs';
 import { GetPromotions } from '@core/interactors/promotion/GetPromotions';
 import { GetPromotionStats } from '@core/interactors/promotion/GetPromotionStats';
@@ -157,6 +159,41 @@ import { SyncOnePromotion } from '@core/interactors/promotion/SyncOnePromotion';
         NestPriceApiRepository,
         AppConfigService,
       ],
+    },
+    {
+      provide: 'ActivateDealPromotion',
+      useFactory: async (
+        promotionRepository: MongoPromotionRepository,
+        mercadolibreApiRepository: NestMercadolibreApiRepository,
+        priceApiRepository: NestPriceApiRepository,
+        automeliMlaControl: AutomeliMlaControl,
+      ) =>
+        new ActivateDealPromotion({
+          promotionRepository,
+          mercadolibreApiRepository,
+          priceApiRepository,
+          automeliMlaControl,
+        }),
+      inject: [
+        MongoPromotionRepository,
+        NestMercadolibreApiRepository,
+        NestPriceApiRepository,
+        'AutomeliMlaControl',
+      ],
+    },
+    {
+      provide: 'DeactivateDealPromotion',
+      useFactory: async (
+        promotionRepository: MongoPromotionRepository,
+        mercadolibreApiRepository: NestMercadolibreApiRepository,
+        dealPriceControlService: DealPriceControlService,
+      ) =>
+        new DeactivateDealPromotion({
+          promotionRepository,
+          mercadolibreApiRepository,
+          dealPriceControlService,
+        }),
+      inject: [MongoPromotionRepository, NestMercadolibreApiRepository, 'DealPriceControlService'],
     },
     {
       provide: 'AutomeliMlaControl',

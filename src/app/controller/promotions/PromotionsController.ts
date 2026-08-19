@@ -1,6 +1,8 @@
 import { BadRequestException, Body, Controller, Get, Inject, Post, Query } from '@nestjs/common';
 import { ActivatePromotions } from '@core/interactors/promotion/ActivatePromotions';
+import { ActivateDealPromotion } from '@core/interactors/promotion/ActivateDealPromotion';
 import { DeactivatePromotions } from '@core/interactors/promotion/DeactivatePromotions';
+import { DeactivateDealPromotion } from '@core/interactors/promotion/DeactivateDealPromotion';
 import { GetPromotions } from '@core/interactors/promotion/GetPromotions';
 import { GetPromotionCatalogs } from '@core/interactors/promotion/GetPromotionCatalogs';
 import { GetPromotionStats } from '@core/interactors/promotion/GetPromotionStats';
@@ -10,6 +12,8 @@ import { GetPromotionsDto } from '@app/controller/promotions/GetPromotions.dto';
 import { GetPromotionCatalogsDto } from '@app/controller/promotions/GetPromotionCatalogs.dto';
 import { RunProcessDto } from '@app/controller/promotions/RunProcess.dto';
 import { SyncOnePromotionDto } from '@app/controller/promotions/SyncOnePromotion.dto';
+import { ActivateDealPromotionDto } from '@app/controller/promotions/ActivateDealPromotion.dto';
+import { DeactivateDealPromotionDto } from '@app/controller/promotions/DeactivateDealPromotion.dto';
 import { PromotionStatus } from '@core/entities/Promotion';
 
 @Controller('promotions')
@@ -29,6 +33,10 @@ export class PromotionsController {
     private readonly activatePromotions: ActivatePromotions,
     @Inject('DeactivatePromotions')
     private readonly deactivatePromotions: DeactivatePromotions,
+    @Inject('ActivateDealPromotion')
+    private readonly activateDealPromotion: ActivateDealPromotion,
+    @Inject('DeactivateDealPromotion')
+    private readonly deactivateDealPromotion: DeactivateDealPromotion,
   ) {}
 
   @Get()
@@ -111,6 +119,24 @@ export class PromotionsController {
   async deactivateFailed(@Body() body: RunProcessDto) {
     return this.deactivatePromotions.retryFailed({
       sourceProcess: 'manual-deactivate-failed',
+      updatedBy: body.updatedBy ?? 'manual',
+    });
+  }
+
+  @Post('deal/activate')
+  async activateDeal(@Body() body: ActivateDealPromotionDto) {
+    return this.activateDealPromotion.execute({
+      promotionId: body.promotionId,
+      mlas: body.mlas,
+      updatedBy: body.updatedBy ?? 'manual',
+    });
+  }
+
+  @Post('deal/deactivate')
+  async deactivateDeal(@Body() body: DeactivateDealPromotionDto) {
+    return this.deactivateDealPromotion.execute({
+      promotionId: body.promotionId,
+      mlas: body.mlas,
       updatedBy: body.updatedBy ?? 'manual',
     });
   }
