@@ -1,7 +1,12 @@
 import { HttpModule } from '@nestjs/axios';
 import { Module } from '@nestjs/common';
+import { AutomeliController } from '@app/controller/automeli/AutomeliController';
 import { PromotionsController } from '@app/controller/promotions/PromotionsController';
 import { AppConfigService } from '@app/drivers/config/AppConfigService';
+import {
+  NestAutomeliUpdateRepository,
+  NestAutomeliEnableUpdateRepository,
+} from '@app/drivers/repositories/automeli/NestAutomeliUpdateRepository';
 import { NestCampaignMlaApiRepository } from '@app/drivers/repositories/madre-api/NestCampaignMlaApiRepository';
 import { NestMercadolibreApiRepository } from '@app/drivers/repositories/mercadolibre/NestMercadolibreApiRepository';
 import { NestPriceApiRepository } from '@app/drivers/repositories/price-api/NestPriceApiRepository';
@@ -9,6 +14,7 @@ import { MongoPromotionRepository } from '@app/drivers/repositories/mongo/MongoP
 import { MongoModule } from '@app/module/Mongo.module';
 import { PromotionAutomationService } from '@app/service/PromotionAutomation.service';
 import { ActivatePromotions } from '@core/interactors/promotion/ActivatePromotions';
+import { AutomeliMlaControl } from '@core/interactors/promotion/AutomeliMlaControl';
 import { DeactivatePromotions } from '@core/interactors/promotion/DeactivatePromotions';
 import { GetPromotionCatalogs } from '@core/interactors/promotion/GetPromotionCatalogs';
 import { GetPromotions } from '@core/interactors/promotion/GetPromotions';
@@ -19,10 +25,12 @@ import { SyncOnePromotion } from '@core/interactors/promotion/SyncOnePromotion';
 
 @Module({
   imports: [HttpModule, MongoModule],
-  controllers: [PromotionsController],
+  controllers: [PromotionsController, AutomeliController],
   providers: [
     AppConfigService,
     MongoPromotionRepository,
+    NestAutomeliUpdateRepository,
+    NestAutomeliEnableUpdateRepository,
     NestCampaignMlaApiRepository,
     NestMercadolibreApiRepository,
     NestPriceApiRepository,
@@ -118,6 +126,20 @@ import { SyncOnePromotion } from '@core/interactors/promotion/SyncOnePromotion';
         NestPriceApiRepository,
         AppConfigService,
       ],
+    },
+    {
+      provide: 'AutomeliMlaControl',
+      useFactory: async (
+        automeliUpdateRepository: NestAutomeliUpdateRepository,
+        automeliEnableUpdateRepository: NestAutomeliEnableUpdateRepository,
+        configService: AppConfigService,
+      ) =>
+        new AutomeliMlaControl({
+          automeliUpdateRepository,
+          automeliEnableUpdateRepository,
+          config: configService.get(),
+        }),
+      inject: [NestAutomeliUpdateRepository, NestAutomeliEnableUpdateRepository, AppConfigService],
     },
     {
       provide: 'DeactivatePromotions',

@@ -27,6 +27,10 @@ export class AppConfigService {
       defaultMinProfitability: this.configService.get<number>('DEFAULT_MIN_PROFITABILITY', 0.12),
       defaultMinProfit: this.configService.get<number>('DEFAULT_MIN_PROFIT', 0),
       syncPromotion: this.configService.get<string>('SYNC_PROMOTION', ''),
+      automeliApiBaseUrl: this.configService.get<string>('AUTOMELI_API_BASE_URL', ''),
+      automeliApiTimeout: this.configService.get<number>('AUTOMELI_API_TIMEOUT', 10000),
+      automeliApiToken: this.configService.get<string>('AUTOMELI_API_TOKEN'),
+      automeliSellerId: this.configService.get<number>('AUTOMELI_SELLER_ID', 0),
     };
   }
 }

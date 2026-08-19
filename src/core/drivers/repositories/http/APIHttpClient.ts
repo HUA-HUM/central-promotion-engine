@@ -45,6 +45,25 @@ export abstract class APIHttpClient {
     }
   }
 
+  protected async patch<T>(
+    path: string,
+    body: unknown,
+    requestConfig?: AxiosRequestConfig,
+  ): Promise<T> {
+    const url = this.buildUrl(path);
+
+    try {
+      const response = await this.config.axios.patch<T>(url, body, {
+        timeout: this.config.timeout,
+        ...requestConfig,
+      });
+      return response.data;
+    } catch (error) {
+      loggerError(error, body, url, this.config.service);
+      throw error;
+    }
+  }
+
   protected async delete<T>(path: string, requestConfig?: AxiosRequestConfig): Promise<T> {
     const url = this.buildUrl(path);
 
