@@ -14,6 +14,7 @@ export class NestMercadolibreApiRepository extends APIMercadolibreApiRepository 
       timeout: config.mercadolibreApiTimeout,
       apiToken: config.mercadolibreApiToken,
       syncPromotionTypes: config.syncPromotionTypes,
+      AppKey: config.mercadolibreAppKey,
     });
   }
 }

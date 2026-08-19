@@ -9,6 +9,8 @@ import {
   IAPIMercadolibreApiRepository,
   PauseOrDeletePromotionCommand,
   PromotionCatalog,
+  UpdatePriceCommand,
+  UpdatePriceResponse,
 } from '@core/adapters/repositories/mercadolibre/IAPIMercadolibreApiRepository';
 import { PromotionType } from '@core/entities/PromotionCatalog';
 import { Logger } from '@core/drivers/logger/Logger';
@@ -21,6 +23,17 @@ export interface APIMercadolibreApiRepositoryConfig {
   timeout: number;
   apiToken?: string;
   syncPromotionTypes: string[];
+  AppKey: string;
+}
+
+interface MeliUpdatePriceRawResponse {
+  id: string;
+  appKey: string;
+  previousPrice: number;
+  price: number;
+  currency: string;
+  status: string;
+  lastUpdated: string;
 }
 
 export class APIMercadolibreApiRepository
@@ -249,6 +262,27 @@ export class APIMercadolibreApiRepository
       headers: this.headers(),
       params,
     });
+  }
+
+  async updatePrice(command: UpdatePriceCommand): Promise<UpdatePriceResponse> {
+    const appKey = command.appKey ?? this.repositoryConfig.AppKey;
+    const params = new URLSearchParams({ appKey });
+
+    const response = await this.patch<MeliUpdatePriceRawResponse>(
+      `/meli/products/${command.itemId}/price?${params.toString()}`,
+      { price: command.price },
+      { headers: this.headers() },
+    );
+
+    return {
+      id: response.id,
+      appKey: response.appKey,
+      previousPrice: response.previousPrice,
+      price: response.price,
+      currency: response.currency,
+      status: response.status,
+      lastUpdated: new Date(response.lastUpdated),
+    };
   }
 
   private headers(): Record<string, string> {

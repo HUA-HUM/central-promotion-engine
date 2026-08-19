@@ -105,6 +105,22 @@ interface BasePauseOrDeletePromotionCommand {
 
 export type PauseOrDeletePromotionCommand = BasePauseOrDeletePromotionCommand;
 
+export interface UpdatePriceCommand {
+  itemId: string;
+  price: number;
+  appKey?: string;
+}
+
+export interface UpdatePriceResponse {
+  id: string;
+  appKey: string;
+  previousPrice: number;
+  price: number;
+  currency: string;
+  status: string;
+  lastUpdated: Date;
+}
+
 export interface IAPIMercadolibreApiRepository {
   getPromotions(): Promise<PromotionCatalog[]>;
   getEligibleItems(promotionId: string, promotionType: string): Promise<EligibleItem[]>;
@@ -116,4 +132,5 @@ export interface IAPIMercadolibreApiRepository {
   getItemDetail(itemId: string): Promise<ItemDetail>;
   activatePromotion(command: ActivatePromotionCommand): Promise<{ offerId?: string; status: string }>;
   pauseOrDeletePromotion(command: PauseOrDeletePromotionCommand): Promise<{ status: string }>;
+  updatePrice(command: UpdatePriceCommand): Promise<UpdatePriceResponse>;
 }

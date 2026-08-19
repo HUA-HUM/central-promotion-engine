@@ -18,6 +18,7 @@ export class AppConfigService {
       mercadolibreApiBaseUrl: this.configService.getOrThrow<string>('MERCADOLIBRE_API_BASE_URL'),
       mercadolibreApiTimeout: this.configService.get<number>('MERCADOLIBRE_API_TIMEOUT', 10000),
       mercadolibreApiToken: this.configService.get<string>('MERCADOLIBRE_API_TOKEN'),
+      mercadolibreAppKey: this.configService.get<string>('MERCADOLIBRE_APP_KEY', 'promotions-engine-api'),
       priceApiBaseUrl: this.configService.getOrThrow<string>('PRICE_API_BASE_URL'),
       priceApiTimeout: this.configService.get<number>('PRICE_API_TIMEOUT', 10000),
       priceApiToken:this.configService.get<string>('PRICE_API_TOKEN'),

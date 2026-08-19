@@ -9,6 +9,7 @@ export interface AppConfig {
   mercadolibreApiBaseUrl: string;
   mercadolibreApiTimeout: number;
   mercadolibreApiToken?: string;
+  mercadolibreAppKey: string;
   priceApiBaseUrl: string;
   priceApiTimeout: number;
   priceApiToken?: string;
