@@ -38,8 +38,9 @@ export interface DealPriceControlBuilder {
 }
 
 export class DealPriceControlService {
-  private static readonly BINARY_SEARCH_MAX_ITERATIONS = 12;
-  private static readonly BINARY_SEARCH_PRICE_TOLERANCE = 1;
+  private static readonly BINARY_SEARCH_MAX_ITERATIONS = 6;
+  private static readonly BINARY_SEARCH_RELATIVE_TOLERANCE = 0.01;
+  private static readonly BINARY_SEARCH_MIN_PRICE_TOLERANCE = 1;
 
   constructor(private readonly builder: DealPriceControlBuilder) {}
 
@@ -237,10 +238,14 @@ export class DealPriceControlService {
     let hi = maxDealPrice;
     let bestPrice = maxDealPrice;
 
+    const tolerance = Math.max(
+      DealPriceControlService.BINARY_SEARCH_MIN_PRICE_TOLERANCE,
+      currentDealPrice * DealPriceControlService.BINARY_SEARCH_RELATIVE_TOLERANCE,
+    );
+
     for (
       let iteration = 0;
-      iteration < DealPriceControlService.BINARY_SEARCH_MAX_ITERATIONS &&
-      hi - lo > DealPriceControlService.BINARY_SEARCH_PRICE_TOLERANCE;
+      iteration < DealPriceControlService.BINARY_SEARCH_MAX_ITERATIONS && hi - lo > tolerance;
       iteration += 1
     ) {
       const mid = Math.floor((lo + hi) / 2);
