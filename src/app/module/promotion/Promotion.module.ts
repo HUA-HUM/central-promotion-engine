@@ -167,18 +167,21 @@ import { SyncOnePromotion } from '@core/interactors/promotion/SyncOnePromotion';
         mercadolibreApiRepository: NestMercadolibreApiRepository,
         priceApiRepository: NestPriceApiRepository,
         automeliMlaControl: AutomeliMlaControl,
+        configService: AppConfigService,
       ) =>
         new ActivateDealPromotion({
           promotionRepository,
           mercadolibreApiRepository,
           priceApiRepository,
           automeliMlaControl,
+          config: configService.get(),
         }),
       inject: [
         MongoPromotionRepository,
         NestMercadolibreApiRepository,
         NestPriceApiRepository,
         'AutomeliMlaControl',
+        AppConfigService,
       ],
     },
     {

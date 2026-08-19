@@ -1,3 +1,4 @@
+import { AppConfig } from '@app/drivers/config/AppConfig';
 import { AutomeliMlaControl } from '@core/interactors/promotion/AutomeliMlaControl';
 import {
   IAPIMercadolibreApiRepository,
@@ -39,6 +40,7 @@ export interface ActivateDealPromotionBuilder {
   mercadolibreApiRepository: IAPIMercadolibreApiRepository;
   priceApiRepository: IAPIPriceApiRepository;
   automeliMlaControl: AutomeliMlaControl;
+  config: Pick<AppConfig, 'defaultMinProfit' | 'defaultMinProfitability'>;
 }
 
 export class ActivateDealPromotion {
@@ -317,8 +319,15 @@ export class ActivateDealPromotion {
       return false;
     }
 
+    const { defaultMinProfit, defaultMinProfitability } = this.builder.config;
+
     const profitability = promotion.economics.profitability ?? Number.NEGATIVE_INFINITY;
-    if (profitability <= 0) {
+    if (profitability < defaultMinProfitability) {
+      return false;
+    }
+
+    const profit = promotion.economics.profit ?? Number.NEGATIVE_INFINITY;
+    if (profit < defaultMinProfit) {
       return false;
     }
 

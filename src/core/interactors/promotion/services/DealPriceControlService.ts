@@ -29,7 +29,11 @@ export interface DealPriceControlBuilder {
   priceApiRepository: IAPIPriceApiRepository;
   config: Pick<
     AppConfig,
-    'automeliSellerId' | 'dealPriceControlEnabled' | 'dealPriceControlMaxBaseIncreasePercentage'
+    | 'automeliSellerId'
+    | 'dealPriceControlEnabled'
+    | 'dealPriceControlMaxBaseIncreasePercentage'
+    | 'defaultMinProfit'
+    | 'defaultMinProfitability'
   >;
 }
 
@@ -194,9 +198,12 @@ export class DealPriceControlService {
   }
 
   private isProfitable(metrics: PriceMetrics, salePrice: number): boolean {
+    const { defaultMinProfit, defaultMinProfitability } = this.builder.config;
+
     return (
       metrics.profitable === true &&
-      (metrics.profitability ?? 0) > 0 &&
+      (metrics.profitability ?? Number.NEGATIVE_INFINITY) >= defaultMinProfitability &&
+      (metrics.profit ?? Number.NEGATIVE_INFINITY) >= defaultMinProfit &&
       salePrice > (metrics.cost ?? 0)
     );
   }
