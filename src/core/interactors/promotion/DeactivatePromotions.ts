@@ -12,6 +12,7 @@ import {
   PriceMetricsBulkResolver,
   PriceMetricsRequest,
 } from '@core/interactors/promotion/services/PriceMetricsBulkResolver';
+import { DealPriceControlService } from '@core/interactors/promotion/services/DealPriceControlService';
 
 interface PromotionMetricsCandidate {
   promotion: Promotion;
@@ -35,6 +36,7 @@ export interface DeactivatePromotionsBuilder {
   campaignMlaApiRepository: IAPICampaignMlaApiRepository;
   mercadolibreApiRepository: IAPIMercadolibreApiRepository;
   priceApiRepository: IAPIPriceApiRepository;
+  dealPriceControlService: DealPriceControlService;
   config: AppConfig;
 }
 
@@ -325,6 +327,52 @@ export class DeactivatePromotions {
     });
   }
 
+  private async finishExpiredDeal(
+    promotion: Promotion,
+    input: DeactivatePromotionsInput,
+  ): Promise<void> {
+    const releasedPriceControl = await this.builder.dealPriceControlService.release(promotion);
+
+    const now = new Date();
+    const reason = 'Promotion is outside valid date range';
+
+    await this.builder.promotionRepository.update({
+      ...promotion,
+      status: PromotionStatus.FINISHED,
+      priceControl: releasedPriceControl,
+      metadata: {
+        ...promotion.metadata,
+        deactivatedAt: now,
+        updatedBy: input.updatedBy,
+        sourceProcess: input.sourceProcess,
+        reason,
+        statusReason: 'DEAL promotion finished automatically because it is outside valid date range',
+      },
+      auditTrail: [
+        ...promotion.auditTrail,
+        {
+          process: input.sourceProcess,
+          status: PromotionStatus.FINISHED,
+          reason,
+          executedAt: now,
+        },
+      ],
+    });
+
+    Logger.info(
+      JSON.stringify({
+        message: 'DEAL promotion finished automatically and Automeli released',
+        process: 'deactivate',
+        sourceProcess: input.sourceProcess,
+        updatedBy: input.updatedBy,
+        promotionId: promotion.promotionId,
+        itemId: promotion.itemId,
+        automeliReleased: releasedPriceControl?.status === 'RELEASED',
+        priceControlStatus: releasedPriceControl?.status,
+      }),
+    );
+  }
+
   private buildPromotionWithUpdatedMetrics(
     promotion: Promotion,
     currentSalePrice: number,
@@ -457,6 +505,11 @@ export class DeactivatePromotions {
   > {
     try {
       if (promotion.type === PromotionType.DEAL) {
+        if (this.isPromotionOutOfDate(promotion)) {
+          await this.finishExpiredDeal(promotion, input);
+          return { kind: 'success' };
+        }
+
         Logger.info(
           JSON.stringify({
             message: 'Skipping DEAL deactivation because DEAL promotions require manual deactivation',
@@ -640,6 +693,11 @@ export class DeactivatePromotions {
   ): Promise<'success' | 'failure' | 'skipped'> {
     try {
       if (promotion.type === PromotionType.DEAL) {
+        if (this.isPromotionOutOfDate(promotion)) {
+          await this.finishExpiredDeal(promotion, input);
+          return 'success';
+        }
+
         Logger.info(
           JSON.stringify({
             message: 'Skipping DEAL deactivation retry because DEAL promotions require manual deactivation',

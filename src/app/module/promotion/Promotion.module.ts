@@ -219,6 +219,7 @@ import { SyncOnePromotion } from '@core/interactors/promotion/SyncOnePromotion';
         campaignMlaApiRepository: NestCampaignMlaApiRepository,
         mercadolibreApiRepository: NestMercadolibreApiRepository,
         priceApiRepository: NestPriceApiRepository,
+        dealPriceControlService: DealPriceControlService,
         configService: AppConfigService,
       ) =>
         new DeactivatePromotions({
@@ -226,6 +227,7 @@ import { SyncOnePromotion } from '@core/interactors/promotion/SyncOnePromotion';
           campaignMlaApiRepository,
           mercadolibreApiRepository,
           priceApiRepository,
+          dealPriceControlService,
           config: configService.get(),
         }),
       inject: [
@@ -233,6 +235,7 @@ import { SyncOnePromotion } from '@core/interactors/promotion/SyncOnePromotion';
         NestCampaignMlaApiRepository,
         NestMercadolibreApiRepository,
         NestPriceApiRepository,
+        'DealPriceControlService',
         AppConfigService,
       ],
     },
