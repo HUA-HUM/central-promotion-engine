@@ -17,8 +17,8 @@ async function bootstrap() {
 
   const config = new DocumentBuilder()
     .setTitle('Central Promos Engine')
-    .setDescription('NestJS microservice to orchestrate Mercado Libre promotions')
-    .setVersion('0.0.1')
+    .setDescription('Microservicio NestJS que orquesta las promociones de Mercado Libre')
+    .setVersion('0.0.2')
     .build();
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api', app, document);
