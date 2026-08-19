@@ -189,6 +189,17 @@ export class MongoPromotionRepository implements PromotionRepository {
     return document !== null;
   }
 
+  async findByItemIds(promotionId: string, itemIds: string[]): Promise<Promotion[]> {
+    if (itemIds.length === 0) {
+      return [];
+    }
+
+    return this.promotionModel
+      .find({ promotionId, itemId: { $in: itemIds } })
+      .lean<Promotion[]>()
+      .exec();
+  }
+
   async update(promotion: Promotion): Promise<void> {
     const { auditTrail, ...promotionWithoutAuditTrail } = promotion;
     const latestAudit = auditTrail?.[auditTrail.length - 1];

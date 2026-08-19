@@ -23,4 +23,6 @@ export interface AppConfig {
   automeliApiTimeout: number;
   automeliApiToken?: string;
   automeliSellerId: number;
+  dealPriceControlEnabled: boolean;
+  dealPriceControlMaxBaseIncreasePercentage: number;
 }

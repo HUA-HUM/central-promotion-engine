@@ -89,6 +89,48 @@ export class PromotionMetadata {
   statusReason?: string;
 }
 
+export type PriceControlStatus =
+  | 'PRICE_UPDATED_PENDING_SYNC'
+  | 'ACTIVE'
+  | 'RELEASED'
+  | 'SKIPPED';
+
+@Schema({ _id: false })
+export class PromotionPriceControl {
+  @Prop({ required: true })
+  controlledBy!: 'DEAL';
+
+  @Prop({
+    required: true,
+    enum: ['PRICE_UPDATED_PENDING_SYNC', 'ACTIVE', 'RELEASED', 'SKIPPED'],
+  })
+  status!: PriceControlStatus;
+
+  @Prop()
+  updaterDisabled?: boolean;
+
+  @Prop()
+  disabledAt?: Date;
+
+  @Prop()
+  releasedAt?: Date;
+
+  @Prop()
+  basePriceBeforeControl?: number;
+
+  @Prop()
+  currentBasePrice?: number;
+
+  @Prop()
+  lastCalculatedDiscountedPrice?: number;
+
+  @Prop()
+  lastPriceUpdateAt?: Date;
+
+  @Prop()
+  reason?: string;
+}
+
 @Schema({ collection: 'promotions', timestamps: true })
 export class Promotion {
   @Prop({ required: true })
@@ -141,6 +183,9 @@ export class Promotion {
 
   @Prop({ type: Terms, default: {} })
   terms?: Terms;
+
+  @Prop({ type: PromotionPriceControl })
+  priceControl?: PromotionPriceControl;
 }
 
 export const PromotionSchema = SchemaFactory.createForClass(Promotion);

@@ -2,11 +2,14 @@ import { Promotion } from '@core/entities/Promotion';
 import { PromotionType } from '@core/entities/PromotionCatalog';
 import {
   ActivatePromotionCommand,
+  EligibleItem,
+  ItemDetail,
   PauseOrDeletePromotionCommand,
 } from '@core/adapters/repositories/mercadolibre/IAPIMercadolibreApiRepository';
 import {
   GenericPromotion,
   PromotionBuilderInput,
+  PromotionPriceControlHookParams,
 } from '@core/interactors/promotion/models/Promotion';
 
 export class DealPromotion extends GenericPromotion {
@@ -18,6 +21,37 @@ export class DealPromotion extends GenericPromotion {
       ...basePromotion,
       offerId: command.eligibleItem.offerId,
     };
+  }
+
+  resolveSyncSalePrice(eligibleItem: EligibleItem, itemDetail: ItemDetail): number {
+    return this.resolveDealPrice(eligibleItem, itemDetail);
+  }
+
+  async applyPriceControl(params: PromotionPriceControlHookParams): Promise<Promotion> {
+    const dealPriceControlService = this.dependencies?.dealPriceControlService;
+    if (!dealPriceControlService) {
+      return params.promotion;
+    }
+
+    const { context } = params;
+    const priceControl = await dealPriceControlService.evaluate({
+      itemId: context.eligibleItem.itemId,
+      sku: context.itemDetail.sku,
+      categoryId: context.itemDetail.categoryId,
+      publicationType: context.itemDetail.listingTypeId,
+      originalPrice: context.eligibleItem.originalPrice,
+      itemPrice: context.itemDetail.price,
+      currentDealPrice: this.resolveDealPrice(context.eligibleItem, context.itemDetail),
+      meliContributionPercentage: context.eligibleItem.meliPercentage,
+      metrics: params.metrics,
+      existingPriceControl: params.existingPromotion?.priceControl,
+    });
+
+    return { ...params.promotion, priceControl };
+  }
+
+  private resolveDealPrice(eligibleItem: EligibleItem, itemDetail: ItemDetail): number {
+    return eligibleItem.maxPrice ?? eligibleItem.suggestedPrice ?? itemDetail.price ?? 0;
   }
 
   buildActivationCommand(promotion: Promotion): ActivatePromotionCommand {

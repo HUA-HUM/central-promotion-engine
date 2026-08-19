@@ -20,6 +20,7 @@ import { GetPromotionCatalogs } from '@core/interactors/promotion/GetPromotionCa
 import { GetPromotions } from '@core/interactors/promotion/GetPromotions';
 import { GetPromotionStats } from '@core/interactors/promotion/GetPromotionStats';
 import { SaveAllPromotion } from '@core/interactors/promotion/SaveAllPromotion';
+import { DealPriceControlService } from '@core/interactors/promotion/services/DealPriceControlService';
 import { SyncAllPromotions } from '@core/interactors/promotion/SyncAllPromotions';
 import { SyncOnePromotion } from '@core/interactors/promotion/SyncOnePromotion';
 
@@ -68,6 +69,30 @@ import { SyncOnePromotion } from '@core/interactors/promotion/SyncOnePromotion';
       inject: [MongoPromotionRepository],
     },
     {
+      provide: 'DealPriceControlService',
+      useFactory: async (
+        automeliUpdateRepository: NestAutomeliUpdateRepository,
+        automeliEnableUpdateRepository: NestAutomeliEnableUpdateRepository,
+        mercadolibreApiRepository: NestMercadolibreApiRepository,
+        priceApiRepository: NestPriceApiRepository,
+        configService: AppConfigService,
+      ) =>
+        new DealPriceControlService({
+          automeliUpdateRepository,
+          automeliEnableUpdateRepository,
+          mercadolibreApiRepository,
+          priceApiRepository,
+          config: configService.get(),
+        }),
+      inject: [
+        NestAutomeliUpdateRepository,
+        NestAutomeliEnableUpdateRepository,
+        NestMercadolibreApiRepository,
+        NestPriceApiRepository,
+        AppConfigService,
+      ],
+    },
+    {
       provide: 'SyncAllPromotions',
       useFactory: async (
         campaignMlaApiRepository: NestCampaignMlaApiRepository,
@@ -75,6 +100,8 @@ import { SyncOnePromotion } from '@core/interactors/promotion/SyncOnePromotion';
         priceApiRepository: NestPriceApiRepository,
         saveAllPromotion: SaveAllPromotion,
         configService: AppConfigService,
+        dealPriceControlService: DealPriceControlService,
+        promotionRepository: MongoPromotionRepository,
       ) =>
         new SyncAllPromotions({
           campaignMlaApiRepository,
@@ -82,6 +109,8 @@ import { SyncOnePromotion } from '@core/interactors/promotion/SyncOnePromotion';
           priceApiRepository,
           saveAllPromotion,
           config: configService.get(),
+          dealPriceControlService,
+          promotionRepository,
         }),
       inject: [
         NestCampaignMlaApiRepository,
@@ -89,6 +118,8 @@ import { SyncOnePromotion } from '@core/interactors/promotion/SyncOnePromotion';
         NestPriceApiRepository,
         'SaveAllPromotion',
         AppConfigService,
+        'DealPriceControlService',
+        MongoPromotionRepository,
       ],
     },
     {

@@ -32,6 +32,11 @@ export class AppConfigService {
       automeliApiTimeout: this.configService.get<number>('AUTOMELI_API_TIMEOUT', 10000),
       automeliApiToken: this.configService.get<string>('AUTOMELI_API_TOKEN'),
       automeliSellerId: this.configService.get<number>('AUTOMELI_SELLER_ID', 0),
+      dealPriceControlEnabled: this.configService.get<string>('DEAL_PRICE_CONTROL_ENABLED', 'false') === 'true',
+      dealPriceControlMaxBaseIncreasePercentage: this.configService.get<number>(
+        'DEAL_PRICE_CONTROL_MAX_BASE_INCREASE_PERCENTAGE',
+        0.3,
+      ),
     };
   }
 }

@@ -7,6 +7,7 @@ import {
   PromotionModel,
   PromotionBuilderDependencies,
 } from '@core/interactors/promotion/models/Promotion';
+import { DealPriceControlService } from '@core/interactors/promotion/services/DealPriceControlService';
 import { SmartPromotion } from '@core/interactors/promotion/models/SmartPromotion';
 
 export class PromotionModelsRegistry {
@@ -30,8 +31,11 @@ export class PromotionModelsRegistry {
     return new PromotionModelsRegistry(models, new GenericPromotion());
   }
 
-  static forSync(priceApiRepository: IAPIPriceApiRepository): PromotionModelsRegistry {
-    const dependencies: PromotionBuilderDependencies = { priceApiRepository };
+  static forSync(
+    priceApiRepository: IAPIPriceApiRepository,
+    dealPriceControlService?: DealPriceControlService,
+  ): PromotionModelsRegistry {
+    const dependencies: PromotionBuilderDependencies = { priceApiRepository, dealPriceControlService };
     const models: PromotionModel[] = [
       new DealPromotion(dependencies),
       new SmartPromotion(dependencies),

@@ -5,17 +5,19 @@ import {
   IAPIMercadolibreApiRepository,
   ItemDetail,
 } from '@core/adapters/repositories/mercadolibre/IAPIMercadolibreApiRepository';
+import { PromotionRepository } from '@core/adapters/repositories/IPromotionRepository';
 import { IAPIPriceApiRepository } from '@core/adapters/repositories/price-api/IAPIPriceApiRepository';
 import { ProcessResult } from '@core/adapters/dto/ProcessResult';
 import { Logger } from '@core/drivers/logger/Logger';
 import { Promotion } from '@core/entities/Promotion';
 import { PromotionStatus } from '@core/entities/Promotion';
-import { PromotionCatalog, PromotionType } from '@core/entities/PromotionCatalog';
+import { PromotionCatalog } from '@core/entities/PromotionCatalog';
 import {
   PromotionBuilderInput,
 } from '@core/interactors/promotion/models/Promotion';
 import { PromotionModelsRegistry } from '@core/interactors/promotion/models/PromotionModelsRegistry';
 import { SaveAllPromotion } from '@core/interactors/promotion/SaveAllPromotion';
+import { DealPriceControlService } from '@core/interactors/promotion/services/DealPriceControlService';
 import {
   PriceMetricsBulkResolver,
   PriceMetricsRequest,
@@ -32,6 +34,8 @@ export interface SyncAllPromotionsBuilder {
   priceApiRepository: IAPIPriceApiRepository;
   saveAllPromotion: SaveAllPromotion;
   config: AppConfig;
+  dealPriceControlService?: DealPriceControlService;
+  promotionRepository?: PromotionRepository;
 }
 
 export class SyncAllPromotions {
@@ -42,7 +46,10 @@ export class SyncAllPromotions {
 
   constructor(private readonly builder: SyncAllPromotionsBuilder) {
     this.priceMetricsResolver = new PriceMetricsBulkResolver(builder.priceApiRepository);
-    this.promotionModelsRegistry = PromotionModelsRegistry.forSync(builder.priceApiRepository);
+    this.promotionModelsRegistry = PromotionModelsRegistry.forSync(
+      builder.priceApiRepository,
+      builder.dealPriceControlService,
+    );
   }
 
   async execute(input: SyncAllPromotionsInput): Promise<ProcessResult> {
@@ -113,6 +120,7 @@ export class SyncAllPromotions {
         continue;
       }
 
+      const promotionModel = this.promotionModelsRegistry.resolve(promotionCatalog.type);
       let searchAfter: string | undefined;
 
       do {
@@ -202,15 +210,22 @@ export class SyncAllPromotions {
               sku: command.itemDetail.sku,
               categoryId: command.itemDetail.categoryId,
               publicationType: command.itemDetail.listingTypeId,
-              salePrice: this.resolveMetricsSalePrice(
-                command.promotionCatalog.type,
-                command.eligibleItem,
-                command.itemDetail,
-              ),
+              salePrice: promotionModel.resolveSyncSalePrice(command.eligibleItem, command.itemDetail),
               meliContributionPercentage: command.eligibleItem.meliPercentage,
             },
           }),
         );
+
+        let existingPromotionsByItemId = new Map<string, Promotion>();
+        if (promotionModel.applyPriceControl && this.builder.promotionRepository && buildCommands.length > 0) {
+          const existingPromotions = await this.builder.promotionRepository.findByItemIds(
+            promotionCatalog.promotionId,
+            buildCommands.map((command) => command.eligibleItem.itemId),
+          );
+          existingPromotionsByItemId = new Map(
+            existingPromotions.map((promotion) => [promotion.itemId, promotion]),
+          );
+        }
 
         const resolvedMetrics = await this.priceMetricsResolver.resolve(metricsRequests);
 
@@ -220,10 +235,25 @@ export class SyncAllPromotions {
               throw resolved.error;
             }
 
-            const promotion = await this.buildPromotion({
+            let promotion = await promotionModel.build({
               ...resolved.context,
               priceMetrics: resolved.metrics,
             });
+
+            if (promotionModel.applyPriceControl) {
+              const metrics = resolved.metrics;
+              if (!metrics) {
+                throw new Error(`Missing price metrics for item ${resolved.context.eligibleItem.itemId}`);
+              }
+
+              promotion = await promotionModel.applyPriceControl({
+                promotion,
+                context: resolved.context,
+                metrics,
+                existingPromotion: existingPromotionsByItemId.get(resolved.context.eligibleItem.itemId),
+              });
+            }
+
             consolidated.push(promotion);
           } catch (error) {
             failure += 1;
@@ -292,11 +322,6 @@ export class SyncAllPromotions {
     };
   }
 
-  private async buildPromotion(command: PromotionBuilderInput): Promise<Promotion> {
-    const promotionBuilder = this.promotionModelsRegistry.resolve(command.promotionCatalog.type);
-    return promotionBuilder.build(command);
-  }
-
   private buildFailedSyncPromotion(params: {
     promotionCatalog: PromotionCatalog;
     eligibleItem: EligibleItem;
@@ -349,23 +374,6 @@ export class SyncAllPromotions {
     }
 
     await this.builder.saveAllPromotion.saveAll(promotions);
-  }
-
-  private resolveMetricsSalePrice(
-    promotionType: PromotionType,
-    eligibleItem: EligibleItem,
-    itemDetail: ItemDetail,
-  ): number {
-    if (promotionType === PromotionType.DEAL) {
-      return (
-        eligibleItem.maxPrice ??
-        eligibleItem.suggestedPrice ??
-        itemDetail.price ??
-        0
-      );
-    }
-
-    return eligibleItem.suggestedPrice ?? itemDetail.price ?? 0;
   }
 
   private async resolveExistingMlas(params: {
