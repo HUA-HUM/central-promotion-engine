@@ -86,6 +86,8 @@ export class DealPriceControlService {
       input.existingPriceControl?.controlledBy === 'DEAL' &&
       input.existingPriceControl?.updaterDisabled === true;
 
+    let automeliMatched: number | undefined;
+
     if (alreadyExcludedByThisDeal) {
       Logger.info(
         JSON.stringify({
@@ -100,6 +102,8 @@ export class DealPriceControlService {
         listingIds: [input.itemId],
         includeNotFound: true,
       });
+
+      automeliMatched = automeliResponse.matched ?? 0;
 
       const notMatched =
         (automeliResponse.matched ?? 0) === 0 || (automeliResponse.notFound ?? []).includes(input.itemId);
@@ -137,6 +141,8 @@ export class DealPriceControlService {
         targetBasePrice,
         discountRatio,
         maxBasePrice,
+        automeliMatched,
+        status: 'PRICE_UPDATED_PENDING_SYNC',
       }),
     );
 
@@ -276,6 +282,7 @@ export class DealPriceControlService {
         message: 'DEAL price control skipped',
         process: 'deal-price-control',
         itemId: input.itemId,
+        status: 'SKIPPED',
         reason,
       }),
     );

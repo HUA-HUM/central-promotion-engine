@@ -31,7 +31,6 @@ export interface DeactivateDealPromotionResult {
   total: number;
   success: number;
   failure: number;
-  items: DeactivateDealPromotionItemResult[];
 }
 
 export interface DeactivateDealPromotionBuilder {
@@ -108,7 +107,6 @@ export class DeactivateDealPromotion {
       total: items.length,
       success: items.filter((item) => item.status === 'success').length,
       failure: items.filter((item) => item.status === 'failure').length,
-      items,
     };
   }
 
@@ -162,6 +160,7 @@ export class DeactivateDealPromotion {
           promotionId: deactivatedPromotion.promotionId,
           itemId: deactivatedPromotion.itemId,
           action,
+          automeliReleased: releasedPriceControl?.status === 'RELEASED',
           priceControlStatus: releasedPriceControl?.status,
           updatedBy: input.updatedBy,
         }),

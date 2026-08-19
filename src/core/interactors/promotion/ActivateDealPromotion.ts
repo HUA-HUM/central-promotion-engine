@@ -32,7 +32,6 @@ export interface ActivateDealPromotionResult {
   success: number;
   skipped: number;
   failure: number;
-  items: ActivateDealPromotionItemResult[];
 }
 
 export interface ActivateDealPromotionBuilder {
@@ -111,7 +110,6 @@ export class ActivateDealPromotion {
       success: items.filter((item) => item.status === 'success').length,
       skipped: items.filter((item) => item.status === 'skipped').length,
       failure: items.filter((item) => item.status === 'failure').length,
-      items,
     };
   }
 
@@ -221,6 +219,7 @@ export class ActivateDealPromotion {
           dealPrice,
           automeliStatus: automeliResponse.status,
           offerId: activatedPromotion.offerId,
+          meliStatus: activationResponse.status,
           updatedBy: input.updatedBy,
         }),
       );

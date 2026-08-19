@@ -1,3 +1,4 @@
+import { Logger } from '@core/drivers/logger/Logger';
 import { Promotion } from '@core/entities/Promotion';
 import { PromotionType } from '@core/entities/PromotionCatalog';
 import {
@@ -28,12 +29,34 @@ export class DealPromotion extends GenericPromotion {
   }
 
   async applyPriceControl(params: PromotionPriceControlHookParams): Promise<Promotion> {
+    const { context } = params;
+    const currentDealPrice = this.resolveDealPrice(context.eligibleItem, context.itemDetail);
+    const referenceBasePrice = context.eligibleItem.originalPrice ?? context.itemDetail.price;
+    const discountRatio = referenceBasePrice ? currentDealPrice / referenceBasePrice : undefined;
+
+    Logger.info(
+      JSON.stringify({
+        message: 'DEAL sync computed price and profitability metrics',
+        process: 'sync',
+        promotionId: context.promotionCatalog.promotionId,
+        itemId: context.eligibleItem.itemId,
+        originalPrice: context.eligibleItem.originalPrice,
+        maxPrice: context.eligibleItem.maxPrice,
+        suggestedPrice: context.eligibleItem.suggestedPrice,
+        currentBasePrice: context.itemDetail.price,
+        currentDealPrice,
+        discountRatio,
+        profitable: params.metrics.profitable,
+        cost: params.metrics.cost,
+        profitability: params.metrics.profitability,
+      }),
+    );
+
     const dealPriceControlService = this.dependencies?.dealPriceControlService;
     if (!dealPriceControlService) {
       return params.promotion;
     }
 
-    const { context } = params;
     const priceControl = await dealPriceControlService.evaluate({
       itemId: context.eligibleItem.itemId,
       sku: context.itemDetail.sku,
