@@ -32,7 +32,7 @@ describe('SyncAllPromotions', () => {
         syncCron: '',
         activateCron: '',
         deactivateCron: '',
-        defaultMinProfitability: 0.1,
+        defaultMinProfitability: 10,
         defaultMinProfit: 0,
       },
     });

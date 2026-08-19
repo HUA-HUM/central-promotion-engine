@@ -25,7 +25,7 @@ export class AppConfigService {
       syncCron: this.configService.get<string>('SYNC_PROMOTIONS_CRON', '0 0 */12 * * *'),
       activateCron: this.configService.get<string>('ACTIVATE_PROMOTIONS_CRON', '0 0 */8 * * *'),
       deactivateCron: this.configService.get<string>('DEACTIVATE_PROMOTIONS_CRON', '0 0 */10 * * *'),
-      defaultMinProfitability: this.configService.get<number>('DEFAULT_MIN_PROFITABILITY', 0.12),
+      defaultMinProfitability: this.configService.get<number>('DEFAULT_MIN_PROFITABILITY', 12),
       defaultMinProfit: this.configService.get<number>('DEFAULT_MIN_PROFIT', 0),
       syncPromotion: this.configService.get<string>('SYNC_PROMOTION', ''),
       automeliApiBaseUrl: this.configService.get<string>('AUTOMELI_API_BASE_URL', ''),
