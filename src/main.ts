@@ -19,8 +19,18 @@ async function bootstrap() {
     .setTitle('Central Promos Engine')
     .setDescription('NestJS microservice to orchestrate Mercado Libre promotions')
     .setVersion('0.0.1')
+    .addApiKey(
+      {
+        type: 'apiKey',
+        name: 'x-api-key',
+        in: 'header',
+        description: 'API key requerida para consumir endpoints protegidos',
+      },
+      'api-key',
+    )
     .build();
   const document = SwaggerModule.createDocument(app, config);
+  document.security = [{ 'api-key': [] }];
   SwaggerModule.setup('api', app, document);
 
   const configService = app.get(ConfigService);
