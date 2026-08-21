@@ -119,6 +119,14 @@ export class ActivateDealPromotion {
     promotion: Promotion,
     input: ActivateDealPromotionInput,
   ): Promise<ActivateDealPromotionItemResult> {
+    if (this.isDeadlineExpired(promotion)) {
+      return this.skipped(
+        promotion.itemId,
+        input,
+        `Promotion ${promotion.promotionId} deadline has already expired`,
+      );
+    }
+
     const hasAnotherActiveDeal = await this.builder.promotionRepository.hasActivePromotionForItem(
       promotion.itemId,
       PromotionType.DEAL,
@@ -303,6 +311,14 @@ export class ActivateDealPromotion {
         statusReason: 'Promotion revalidated before manual DEAL activation',
       },
     };
+  }
+
+  private isDeadlineExpired(promotion: Promotion): boolean {
+    if (!promotion.deadlineDate) {
+      return false;
+    }
+
+    return new Date() > promotion.deadlineDate;
   }
 
   private resolveDealPrice(promotion: Promotion): number {
