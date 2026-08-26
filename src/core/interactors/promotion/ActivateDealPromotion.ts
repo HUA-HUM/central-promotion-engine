@@ -70,10 +70,16 @@ export class ActivateDealPromotion {
       reason: `Item ${itemId} was not found among the synced items for promotion ${input.promotionId}`,
     }));
 
+    const activeElsewhereItemIds = await this.builder.promotionRepository.findItemIdsWithActivePromotion(
+      targets.map((promotion) => promotion.itemId),
+      PromotionType.DEAL,
+      input.promotionId,
+    );
+
     const processedResults = await mapWithConcurrency(
       targets,
       ActivateDealPromotion.CONCURRENCY,
-      (promotion) => this.processPromotion(promotion, input),
+      (promotion) => this.processPromotion(promotion, input, activeElsewhereItemIds),
     );
 
     return this.summarize(input.promotionId, [...processedResults, ...notFoundResults]);
@@ -119,6 +125,7 @@ export class ActivateDealPromotion {
   private async processPromotion(
     promotion: Promotion,
     input: ActivateDealPromotionInput,
+    activeElsewhereItemIds: Set<string>,
   ): Promise<ActivateDealPromotionItemResult> {
     if (this.isDeadlineExpired(promotion)) {
       return this.skipped(
@@ -128,13 +135,7 @@ export class ActivateDealPromotion {
       );
     }
 
-    const hasAnotherActiveDeal = await this.builder.promotionRepository.hasActivePromotionForItem(
-      promotion.itemId,
-      PromotionType.DEAL,
-      promotion.promotionId,
-    );
-
-    if (hasAnotherActiveDeal) {
+    if (activeElsewhereItemIds.has(promotion.itemId)) {
       return this.skipped(
         promotion.itemId,
         input,

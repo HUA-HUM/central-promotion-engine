@@ -62,7 +62,11 @@ export interface PromotionRepository {
   findActive(): Promise<Promotion[]>;
   findActiveBatch(afterId?: string, limit?: number): Promise<Promotion[]>;
   findFailedDeactivationBatch(afterId?: string, limit?: number): Promise<Promotion[]>;
-  hasActivePromotionForItem(itemId: string, type: PromotionType, excludingPromotionId?: string): Promise<boolean>;
+  findItemIdsWithActivePromotion(
+    itemIds: string[],
+    type: PromotionType,
+    excludingPromotionId?: string,
+  ): Promise<Set<string>>;
   findByItemIds(promotionId: string, itemIds: string[]): Promise<Promotion[]>;
   findByPromotionId(promotionId: string): Promise<Promotion[]>;
   update(promotion: Promotion): Promise<void>;

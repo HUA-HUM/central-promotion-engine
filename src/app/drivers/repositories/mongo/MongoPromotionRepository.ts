@@ -230,13 +230,17 @@ export class MongoPromotionRepository implements PromotionRepository {
     );
   }
 
-  async hasActivePromotionForItem(
-    itemId: string,
+  async findItemIdsWithActivePromotion(
+    itemIds: string[],
     type: PromotionType,
     excludingPromotionId?: string,
-  ): Promise<boolean> {
+  ): Promise<Set<string>> {
+    if (itemIds.length === 0) {
+      return new Set();
+    }
+
     const query: FilterQuery<Promotion> = {
-      itemId,
+      itemId: { $in: itemIds },
       type,
       status: PromotionStatus.ACTIVE,
     };
@@ -245,8 +249,17 @@ export class MongoPromotionRepository implements PromotionRepository {
       query.promotionId = { $ne: excludingPromotionId };
     }
 
-    const document = await this.promotionModel.exists(query).exec();
-    return document !== null;
+    const activePromotions = await this.measure(
+      'findItemIdsWithActivePromotion',
+      () =>
+        this.promotionModel
+          .find(query, { itemId: 1 })
+          .lean<Pick<Promotion, 'itemId'>[]>()
+          .exec(),
+      { itemCount: itemIds.length },
+    );
+
+    return new Set(activePromotions.map((promotion) => promotion.itemId));
   }
 
   async findByItemIds(promotionId: string, itemIds: string[]): Promise<Promotion[]> {
