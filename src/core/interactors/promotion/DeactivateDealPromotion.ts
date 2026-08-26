@@ -5,6 +5,7 @@ import { PromotionRepository } from '@core/adapters/repositories/IPromotionRepos
 import { Logger } from '@core/drivers/logger/Logger';
 import { Promotion, PromotionStatus } from '@core/entities/Promotion';
 import { PromotionType } from '@core/entities/PromotionCatalog';
+import { mapWithConcurrency } from '@core/interactors/promotion/mapWithConcurrency';
 import { PromotionModelsRegistry } from '@core/interactors/promotion/models/PromotionModelsRegistry';
 import { DealPriceControlService } from '@core/interactors/promotion/services/DealPriceControlService';
 
@@ -65,7 +66,7 @@ export class DeactivateDealPromotion {
       reason: `Item ${itemId} was not found among the synced items for promotion ${input.promotionId}`,
     }));
 
-    const processedResults = await this.mapWithConcurrency(
+    const processedResults = await mapWithConcurrency(
       targets,
       DeactivateDealPromotion.CONCURRENCY,
       (promotion) => this.processPromotion(promotion, input),
@@ -204,27 +205,5 @@ export class DeactivateDealPromotion {
 
       return { itemId: promotion.itemId, status: 'failure', action, reason, promotion: failedPromotion };
     }
-  }
-
-  private async mapWithConcurrency<TItem, TResult>(
-    items: TItem[],
-    concurrency: number,
-    mapper: (item: TItem) => Promise<TResult>,
-  ): Promise<TResult[]> {
-    const results: TResult[] = new Array(items.length);
-    let currentIndex = 0;
-
-    const worker = async (): Promise<void> => {
-      while (currentIndex < items.length) {
-        const index = currentIndex;
-        currentIndex += 1;
-        results[index] = await mapper(items[index]);
-      }
-    };
-
-    const workers = Array.from({ length: Math.min(concurrency, items.length) }, () => worker());
-    await Promise.all(workers);
-
-    return results;
   }
 }

@@ -7,6 +7,7 @@ import { IAPIPriceApiRepository } from '@core/adapters/repositories/price-api/IA
 import { PromotionRepository } from '@core/adapters/repositories/IPromotionRepository';
 import { Promotion, PromotionStatus } from '@core/entities/Promotion';
 import { PromotionType } from '@core/entities/PromotionCatalog';
+import { mapWithConcurrency } from '@core/interactors/promotion/mapWithConcurrency';
 import { PromotionModelsRegistry } from '@core/interactors/promotion/models/PromotionModelsRegistry';
 import {
   PriceMetricsBulkResolver,
@@ -98,7 +99,7 @@ export class DeactivatePromotions {
       total += promotions.length;
       lastProcessedId = this.resolveLastProcessedId(promotions, lastProcessedId);
 
-      const results = await this.mapWithConcurrency(
+      const results = await mapWithConcurrency(
         promotions,
         DeactivatePromotions.DEACTIVATION_CONCURRENCY,
         async (promotion) => this.retryFailedPromotion(promotion, input),
@@ -245,7 +246,7 @@ export class DeactivatePromotions {
 
       const { results: resolvedMetrics } = await this.priceMetricsResolver.resolve(metricsRequests);
 
-      const metricsResults = await this.mapWithConcurrency(
+      const metricsResults = await mapWithConcurrency(
         resolvedMetrics,
         DeactivatePromotions.DEACTIVATION_CONCURRENCY,
         async (resolved) => this.processResolvedMetrics(resolved.context, resolved.metrics, resolved.error, input),
@@ -888,32 +889,6 @@ export class DeactivatePromotions {
     };
 
     return lastPromotion._id?.toString() ?? fallback;
-  }
-
-  private async mapWithConcurrency<TItem, TResult>(
-    items: TItem[],
-    concurrency: number,
-    mapper: (item: TItem) => Promise<TResult>,
-  ): Promise<TResult[]> {
-    const results: TResult[] = new Array(items.length);
-    let currentIndex = 0;
-
-    const worker = async (): Promise<void> => {
-      while (currentIndex < items.length) {
-        const index = currentIndex;
-        currentIndex += 1;
-        results[index] = await mapper(items[index]);
-      }
-    };
-
-    const workers = Array.from(
-      { length: Math.min(concurrency, items.length) },
-      () => worker(),
-    );
-
-    await Promise.all(workers);
-
-    return results;
   }
 
   private profitabilityPasses(

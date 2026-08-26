@@ -12,6 +12,7 @@ import {
 import { PromotionRepository } from '@core/adapters/repositories/IPromotionRepository';
 import { Promotion, PromotionStatus } from '@core/entities/Promotion';
 import { PromotionType } from '@core/entities/PromotionCatalog';
+import { mapWithConcurrency } from '@core/interactors/promotion/mapWithConcurrency';
 import { PromotionModelsRegistry } from '@core/interactors/promotion/models/PromotionModelsRegistry';
 import {
   PriceMetricsBulkResolver,
@@ -118,7 +119,7 @@ export class ActivatePromotions {
 
       const { results: resolvedMetrics } = await this.priceMetricsResolver.resolve(metricsRequests);
 
-      const activationResults = await this.mapWithConcurrency(
+      const activationResults = await mapWithConcurrency(
         resolvedMetrics,
         ActivatePromotions.ACTIVATION_CONCURRENCY,
         async (resolved) =>
@@ -413,31 +414,5 @@ export class ActivatePromotions {
       promotion.prices.originalPrice ??
       Number.NEGATIVE_INFINITY
     );
-  }
-
-  private async mapWithConcurrency<TItem, TResult>(
-    items: TItem[],
-    concurrency: number,
-    mapper: (item: TItem) => Promise<TResult>,
-  ): Promise<TResult[]> {
-    const results: TResult[] = new Array(items.length);
-    let currentIndex = 0;
-
-    const worker = async (): Promise<void> => {
-      while (currentIndex < items.length) {
-        const index = currentIndex;
-        currentIndex += 1;
-        results[index] = await mapper(items[index]);
-      }
-    };
-
-    const workers = Array.from(
-      { length: Math.min(concurrency, items.length) },
-      () => worker(),
-    );
-
-    await Promise.all(workers);
-
-    return results;
   }
 }

@@ -16,6 +16,7 @@ import { PromotionCatalog } from '@core/entities/PromotionCatalog';
 import {
   PromotionBuilderInput,
 } from '@core/interactors/promotion/models/Promotion';
+import { mapWithConcurrency } from '@core/interactors/promotion/mapWithConcurrency';
 import { PromotionModelsRegistry } from '@core/interactors/promotion/models/PromotionModelsRegistry';
 import { SaveAllPromotion } from '@core/interactors/promotion/SaveAllPromotion';
 import { DealPriceControlService } from '@core/interactors/promotion/services/DealPriceControlService';
@@ -101,28 +102,56 @@ export class SyncAllPromotions {
     processName: string,
   ): Promise<ProcessResult> {
     await this.builder.saveAllPromotion.saveCatalogs(promotionCatalogs);
+
+    const concurrency = Math.max(1, this.builder.config.syncPromotionConcurrency || 1);
+    const catalogResults = await mapWithConcurrency(promotionCatalogs, concurrency, (promotionCatalog) =>
+      this.syncOnePromotionCatalog(promotionCatalog, input, processName),
+    );
+
+    const totals = catalogResults.reduce(
+      (acc, result) => ({
+        success: acc.success + result.success,
+        failure: acc.failure + result.failure,
+        skipped: acc.skipped + result.skipped,
+      }),
+      { success: 0, failure: 0, skipped: 0 },
+    );
+
+    return {
+      process: processName,
+      total: totals.success + totals.failure + totals.skipped,
+      success: totals.success,
+      failure: totals.failure,
+      skipped: totals.skipped,
+    };
+  }
+
+  private async syncOnePromotionCatalog(
+    promotionCatalog: PromotionCatalog,
+    input: SyncAllPromotionsInput,
+    processName: string,
+  ): Promise<{ success: number; failure: number; skipped: number }> {
+    if (this.hasFutureStartDate(promotionCatalog)) {
+      Logger.info(
+        JSON.stringify({
+          message: 'Promotion sync skipped because start date has not been reached',
+          process: processName,
+          sourceProcess: input.sourceProcess,
+          updatedBy: input.updatedBy,
+          promotionId: promotionCatalog.promotionId,
+          promotionType: promotionCatalog.type,
+          startDate: promotionCatalog.startDate?.toISOString() ?? null,
+          currentDate: new Date().toISOString(),
+        }),
+      );
+      return { success: 0, failure: 0, skipped: 1 };
+    }
+
     let success = 0;
     let failure = 0;
-    let skipped = 0;
+    const skipped = 0;
 
-    for (const promotionCatalog of promotionCatalogs) {
-      if (this.hasFutureStartDate(promotionCatalog)) {
-        skipped += 1;
-        Logger.info(
-          JSON.stringify({
-            message: 'Promotion sync skipped because start date has not been reached',
-            process: processName,
-            sourceProcess: input.sourceProcess,
-            updatedBy: input.updatedBy,
-            promotionId: promotionCatalog.promotionId,
-            promotionType: promotionCatalog.type,
-            startDate: promotionCatalog.startDate?.toISOString() ?? null,
-            currentDate: new Date().toISOString(),
-          }),
-        );
-        continue;
-      }
-
+    try {
       const promotionModel = this.promotionModelsRegistry.resolve(promotionCatalog.type);
       let currentSearchAfter: string | undefined;
       let pendingPage: Promise<MeliPaginatedResponse<EligibleItem>> | null =
@@ -351,15 +380,21 @@ export class SyncAllPromotions {
 
         currentSearchAfter = nextSearchAfter;
       }
+    } catch (error) {
+      failure += 1;
+      Logger.error(
+        JSON.stringify({
+          message: 'Promotion sync failed for promotion catalog',
+          process: processName,
+          sourceProcess: input.sourceProcess,
+          promotionId: promotionCatalog.promotionId,
+          promotionType: promotionCatalog.type,
+          reason: error instanceof Error ? error.message : 'Unknown sync error',
+        }),
+      );
     }
 
-    return {
-      process: processName,
-      total: success + failure + skipped,
-      success,
-      failure,
-      skipped,
-    };
+    return { success, failure, skipped };
   }
 
   private buildFailedSyncPromotion(params: {

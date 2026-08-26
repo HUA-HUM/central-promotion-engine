@@ -20,6 +20,7 @@ export interface AppConfig {
   defaultMinProfitability: number;
   defaultMinProfit: number;
   syncPromotion: string;
+  syncPromotionConcurrency: number;
   automeliApiBaseUrl: string;
   automeliApiTimeout: number;
   automeliApiToken?: string;
