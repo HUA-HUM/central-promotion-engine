@@ -48,6 +48,7 @@ export interface PromotionModel extends PromotionBuilder {
 export interface PromotionBuilderDependencies {
   priceApiRepository: IAPIPriceApiRepository;
   dealPriceControlService?: DealPriceControlService;
+  metricsLoggingEnabled?: boolean;
 }
 
 export class GenericPromotion implements PromotionModel {

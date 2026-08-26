@@ -34,23 +34,25 @@ export class DealPromotion extends GenericPromotion {
     const referenceBasePrice = context.eligibleItem.originalPrice ?? context.itemDetail.price;
     const discountRatio = referenceBasePrice ? currentDealPrice / referenceBasePrice : undefined;
 
-    Logger.info(
-      JSON.stringify({
-        message: 'DEAL sync computed price and profitability metrics',
-        process: 'sync',
-        promotionId: context.promotionCatalog.promotionId,
-        itemId: context.eligibleItem.itemId,
-        originalPrice: context.eligibleItem.originalPrice,
-        maxPrice: context.eligibleItem.maxPrice,
-        suggestedPrice: context.eligibleItem.suggestedPrice,
-        currentBasePrice: context.itemDetail.price,
-        currentDealPrice,
-        discountRatio,
-        profitable: params.metrics.profitable,
-        cost: params.metrics.cost,
-        profitability: params.metrics.profitability,
-      }),
-    );
+    if (this.dependencies?.metricsLoggingEnabled) {
+      Logger.info(
+        JSON.stringify({
+          message: 'DEAL sync computed price and profitability metrics',
+          process: 'sync',
+          promotionId: context.promotionCatalog.promotionId,
+          itemId: context.eligibleItem.itemId,
+          originalPrice: context.eligibleItem.originalPrice,
+          maxPrice: context.eligibleItem.maxPrice,
+          suggestedPrice: context.eligibleItem.suggestedPrice,
+          currentBasePrice: context.itemDetail.price,
+          currentDealPrice,
+          discountRatio,
+          profitable: params.metrics.profitable,
+          cost: params.metrics.cost,
+          profitability: params.metrics.profitability,
+        }),
+      );
+    }
 
     const dealPriceControlService = this.dependencies?.dealPriceControlService;
     if (!dealPriceControlService) {

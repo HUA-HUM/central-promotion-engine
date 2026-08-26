@@ -34,8 +34,13 @@ export class PromotionModelsRegistry {
   static forSync(
     priceApiRepository: IAPIPriceApiRepository,
     dealPriceControlService?: DealPriceControlService,
+    metricsLoggingEnabled?: boolean,
   ): PromotionModelsRegistry {
-    const dependencies: PromotionBuilderDependencies = { priceApiRepository, dealPriceControlService };
+    const dependencies: PromotionBuilderDependencies = {
+      priceApiRepository,
+      dealPriceControlService,
+      metricsLoggingEnabled,
+    };
     const models: PromotionModel[] = [
       new DealPromotion(dependencies),
       new SmartPromotion(dependencies),

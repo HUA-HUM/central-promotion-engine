@@ -49,6 +49,7 @@ export class SyncAllPromotions {
     this.promotionModelsRegistry = PromotionModelsRegistry.forSync(
       builder.priceApiRepository,
       builder.dealPriceControlService,
+      builder.config.metricsLoggingEnabled,
     );
   }
 

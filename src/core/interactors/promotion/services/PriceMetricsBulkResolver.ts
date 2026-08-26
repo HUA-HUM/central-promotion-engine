@@ -62,15 +62,6 @@ export class PriceMetricsBulkResolver {
         for (const result of bulkResponse) {
           bulkMetricsByKey.set(buildPriceMetricsKey(result.input), result.metrics);
         }
-
-        Logger.info(
-          JSON.stringify({
-            message: 'Price metrics bulk chunk resolved',
-            process: 'sync',
-            chunkRequestCount: chunk.length,
-            chunkResponseCount: bulkResponse.length,
-          }),
-        );
       } catch (error) {
         Logger.error(
           JSON.stringify({
