@@ -4,6 +4,7 @@ import {
   EligibleItem,
   IAPIMercadolibreApiRepository,
   ItemDetail,
+  MeliPaginatedResponse,
 } from '@core/adapters/repositories/mercadolibre/IAPIMercadolibreApiRepository';
 import { PromotionRepository } from '@core/adapters/repositories/IPromotionRepository';
 import { IAPIPriceApiRepository } from '@core/adapters/repositories/price-api/IAPIPriceApiRepository';
@@ -123,23 +124,34 @@ export class SyncAllPromotions {
       }
 
       const promotionModel = this.promotionModelsRegistry.resolve(promotionCatalog.type);
-      let searchAfter: string | undefined;
-
-      do {
-        const pageStartedAt = Date.now();
-        const currentSearchAfter = searchAfter;
-        const eligibleItemsFetchStartedAt = Date.now();
-        const response = await this.builder.mercadolibreApiRepository.getElegibleItemsPaginated(
+      let currentSearchAfter: string | undefined;
+      let pendingPage: Promise<MeliPaginatedResponse<EligibleItem>> | null =
+        this.builder.mercadolibreApiRepository.getElegibleItemsPaginated(
           promotionCatalog.promotionId,
           promotionCatalog.type,
           currentSearchAfter,
         );
+
+      while (pendingPage) {
+        const pagePromise: Promise<MeliPaginatedResponse<EligibleItem>> = pendingPage;
+        const pageStartedAt = Date.now();
+        const eligibleItemsFetchStartedAt = Date.now();
+        const response: MeliPaginatedResponse<EligibleItem> = await pagePromise;
         const eligibleItemsFetchDurationMs = Date.now() - eligibleItemsFetchStartedAt;
 
         const consolidated: Promotion[] = [];
         const failedPromotions: Promotion[] = [];
-        const eligibleItems = response.results ?? [];
-        const nextSearchAfter = response.paging?.searchAfter;
+        const eligibleItems: EligibleItem[] = response.results ?? [];
+        const nextSearchAfter: string | undefined = response.paging?.searchAfter;
+
+        pendingPage =
+          eligibleItems.length > 0 && nextSearchAfter && nextSearchAfter !== currentSearchAfter
+            ? this.builder.mercadolibreApiRepository.getElegibleItemsPaginated(
+                promotionCatalog.promotionId,
+                promotionCatalog.type,
+                nextSearchAfter,
+              )
+            : null;
 
         if (eligibleItems.length === 0) {
           break;
@@ -337,8 +349,8 @@ export class SyncAllPromotions {
           break;
         }
 
-        searchAfter = nextSearchAfter;
-      } while (searchAfter);
+        currentSearchAfter = nextSearchAfter;
+      }
     }
 
     return {
