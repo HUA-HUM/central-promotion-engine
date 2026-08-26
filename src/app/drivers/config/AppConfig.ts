@@ -16,6 +16,7 @@ export interface AppConfig {
   syncCron: string;
   activateCron: string;
   deactivateCron: string;
+  enabledCronProcesses: string[];
   defaultMinProfitability: number;
   defaultMinProfit: number;
   syncPromotion: string;

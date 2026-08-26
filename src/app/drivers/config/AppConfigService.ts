@@ -25,6 +25,9 @@ export class AppConfigService {
       syncCron: this.configService.get<string>('SYNC_PROMOTIONS_CRON', '0 0 */12 * * *'),
       activateCron: this.configService.get<string>('ACTIVATE_PROMOTIONS_CRON', '0 0 */8 * * *'),
       deactivateCron: this.configService.get<string>('DEACTIVATE_PROMOTIONS_CRON', '0 0 */10 * * *'),
+      enabledCronProcesses: AppConfigService.parseEnabledCronProcesses(
+        this.configService.get<string>('ENABLED_CRON_PROCESSES', ''),
+      ),
       defaultMinProfitability: this.configService.get<number>('DEFAULT_MIN_PROFITABILITY', 12),
       defaultMinProfit: this.configService.get<number>('DEFAULT_MIN_PROFIT', 0),
       syncPromotion: this.configService.get<string>('SYNC_PROMOTION', ''),
@@ -39,5 +42,16 @@ export class AppConfigService {
       ),
       metricsLoggingEnabled: this.configService.get<string>('METRICS_LOGGING_ENABLED', 'false') === 'true',
     };
+  }
+
+  private static readonly ALL_CRON_PROCESSES = ['sync', 'activate', 'deactivate'];
+
+  private static parseEnabledCronProcesses(rawValue: string): string[] {
+    const processes = rawValue
+      .split(',')
+      .map((process) => process.trim())
+      .filter(Boolean);
+
+    return processes.length > 0 ? processes : AppConfigService.ALL_CRON_PROCESSES;
   }
 }

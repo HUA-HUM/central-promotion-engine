@@ -31,7 +31,7 @@ export class PromotionAutomationService implements OnApplicationBootstrap {
     timeZone: PromotionAutomationService.ARGENTINA_TIME_ZONE,
   })
   async handleSyncCron(): Promise<void> {
-    if (this.isCronDisabled('cron.sync')) return;
+    if (this.isCronDisabled('sync', 'cron.sync')) return;
     await this.triggerSync('cron.sync');
   }
 
@@ -39,7 +39,7 @@ export class PromotionAutomationService implements OnApplicationBootstrap {
     timeZone: PromotionAutomationService.ARGENTINA_TIME_ZONE,
   })
   async handleActivateCron(): Promise<void> {
-    if (this.isCronDisabled('cron.activate')) return;
+    if (this.isCronDisabled('activate', 'cron.activate')) return;
     await this.triggerActivate('cron.activate');
   }
 
@@ -47,11 +47,21 @@ export class PromotionAutomationService implements OnApplicationBootstrap {
     timeZone: PromotionAutomationService.ARGENTINA_TIME_ZONE,
   })
   async handleDeactivateCron(): Promise<void> {
-    if (this.isCronDisabled('cron.deactivate')) return;
+    if (this.isCronDisabled('deactivate', 'cron.deactivate')) return;
     await this.triggerDeactivate('cron.deactivate');
   }
 
-  private isCronDisabled(sourceProcess: string): boolean {
+  private isCronDisabled(cronProcess: 'sync' | 'activate' | 'deactivate', sourceProcess: string): boolean {
+    if (!this.configService.get().enabledCronProcesses.includes(cronProcess)) {
+      Logger.info(
+        JSON.stringify({
+          message: 'Skipping cron, process not enabled via ENABLED_CRON_PROCESSES',
+          sourceProcess,
+        }),
+      );
+      return true;
+    }
+
     if (process.env.NODE_ENV !== 'development') {
       return false;
     }
