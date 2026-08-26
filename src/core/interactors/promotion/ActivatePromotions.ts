@@ -1,6 +1,9 @@
 import { AppConfig } from '@app/drivers/config/AppConfig';
 import { ProcessResult } from '@core/adapters/dto/ProcessResult';
-import { IAPIPriceApiRepository } from '@core/adapters/repositories/price-api/IAPIPriceApiRepository';
+import {
+  IAPIPriceApiRepository,
+  PriceMetrics,
+} from '@core/adapters/repositories/price-api/IAPIPriceApiRepository';
 import { Logger } from '@core/drivers/logger/Logger';
 import {
   ActivatePromotionCommand,
@@ -10,6 +13,10 @@ import { PromotionRepository } from '@core/adapters/repositories/IPromotionRepos
 import { Promotion, PromotionStatus } from '@core/entities/Promotion';
 import { PromotionType } from '@core/entities/PromotionCatalog';
 import { PromotionModelsRegistry } from '@core/interactors/promotion/models/PromotionModelsRegistry';
+import {
+  PriceMetricsBulkResolver,
+  PriceMetricsRequest,
+} from '@core/interactors/promotion/services/PriceMetricsBulkResolver';
 
 export interface ActivatePromotionsInput {
   sourceProcess: string;
@@ -23,13 +30,20 @@ export interface ActivatePromotionsBuilder {
   config: AppConfig;
 }
 
+interface PromotionActivationCandidate {
+  promotion: Promotion;
+  salePrice: number;
+}
+
 export class ActivatePromotions {
   private static readonly BATCH_SIZE = 500;
   private static readonly ACTIVATION_CONCURRENCY = 10;
   private readonly promotionModelsRegistry: PromotionModelsRegistry;
+  private readonly priceMetricsResolver: PriceMetricsBulkResolver;
 
   constructor(private readonly builder: ActivatePromotionsBuilder) {
     this.promotionModelsRegistry = PromotionModelsRegistry.forActivation();
+    this.priceMetricsResolver = new PriceMetricsBulkResolver(builder.priceApiRepository);
   }
 
   async execute(input: ActivatePromotionsInput): Promise<ProcessResult> {
@@ -64,19 +78,60 @@ export class ActivatePromotions {
       total += promotions.length;
       lastProcessedId = this.resolveLastProcessedId(promotions, lastProcessedId);
 
-      const batchResults = await this.mapWithConcurrency(
-        promotions,
-        ActivatePromotions.ACTIVATION_CONCURRENCY,
-        async (promotion) => this.processPromotion(promotion, input),
-      );
+      const candidates: PromotionActivationCandidate[] = [];
 
-      for (const batchResult of batchResults) {
-        if (batchResult === 'success') {
+      for (const promotion of promotions) {
+        const preparationResult = await this.prepareActivationCandidate(promotion, input);
+
+        if (preparationResult.kind === 'candidate') {
+          candidates.push(preparationResult.candidate);
+          continue;
+        }
+
+        if (preparationResult.kind === 'success') {
           success += 1;
           continue;
         }
 
-        if (batchResult === 'failure') {
+        if (preparationResult.kind === 'failure') {
+          failure += 1;
+          continue;
+        }
+
+        skipped += 1;
+      }
+
+      const metricsRequests: PriceMetricsRequest<PromotionActivationCandidate>[] = candidates.map(
+        (candidate) => ({
+          context: candidate,
+          input: {
+            itemId: candidate.promotion.itemId,
+            sku: candidate.promotion.sku,
+            categoryId: candidate.promotion.categoryId,
+            publicationType: candidate.promotion.listingTypeId,
+            salePrice: candidate.salePrice,
+            meliContributionPercentage:
+              candidate.promotion.terms?.resignation?.mercadolibre?.percentage,
+          },
+        }),
+      );
+
+      const { results: resolvedMetrics } = await this.priceMetricsResolver.resolve(metricsRequests);
+
+      const activationResults = await this.mapWithConcurrency(
+        resolvedMetrics,
+        ActivatePromotions.ACTIVATION_CONCURRENCY,
+        async (resolved) =>
+          this.finalizeActivation(resolved.context, resolved.metrics, resolved.error, input),
+      );
+
+      for (const activationResult of activationResults) {
+        if (activationResult === 'success') {
+          success += 1;
+          continue;
+        }
+
+        if (activationResult === 'failure') {
           failure += 1;
           continue;
         }
@@ -157,16 +212,21 @@ export class ActivatePromotions {
     return lastPromotion._id?.toString() ?? fallback;
   }
 
-  private async processPromotion(
+  private async prepareActivationCandidate(
     promotion: Promotion,
     input: ActivatePromotionsInput,
-  ): Promise<'success' | 'failure' | 'skipped'> {
+  ): Promise<
+    | { kind: 'candidate'; candidate: PromotionActivationCandidate }
+    | { kind: 'success' }
+    | { kind: 'failure' }
+    | { kind: 'skipped' }
+  > {
     if (this.builder.config.syncPromotion && promotion.promotionId !== this.builder.config.syncPromotion) {
-      return 'skipped';
+      return { kind: 'skipped' };
     }
 
     if (this.isDeadlineExpired(promotion)) {
-      return 'skipped';
+      return { kind: 'skipped' };
     }
 
     if (promotion.type === PromotionType.DEAL) {
@@ -181,16 +241,46 @@ export class ActivatePromotions {
         }),
       );
 
+      return { kind: 'skipped' };
+    }
+
+    const salePrice = this.resolveProfitabilitySalePrice(promotion);
+    if (!Number.isFinite(salePrice)) {
+      await this.markAsFailed(
+        promotion,
+        input,
+        `Missing profitability sale price for item ${promotion.itemId}`,
+      );
+      return { kind: 'failure' };
+    }
+
+    return { kind: 'candidate', candidate: { promotion, salePrice } };
+  }
+
+  private async finalizeActivation(
+    candidate: PromotionActivationCandidate,
+    metrics: PriceMetrics | undefined,
+    error: Error | undefined,
+    input: ActivatePromotionsInput,
+  ): Promise<'success' | 'failure' | 'skipped'> {
+    const { promotion, salePrice } = candidate;
+
+    if (error || !metrics) {
+      await this.markAsFailed(
+        promotion,
+        input,
+        error?.message ?? `Missing price metrics for item ${promotion.itemId}`,
+      );
+      return 'failure';
+    }
+
+    const revalidatedPromotion = this.buildRevalidatedPromotion(promotion, salePrice, metrics, input);
+
+    if (!this.meetsProfitabilityRules(revalidatedPromotion)) {
       return 'skipped';
     }
 
     try {
-      const revalidatedPromotion = await this.revalidatePromotion(promotion, input);
-
-      if (!this.meetsProfitabilityRules(revalidatedPromotion)) {
-        return 'skipped';
-      }
-
       const response = await this.builder.mercadolibreApiRepository.activatePromotion(
         this.buildActivateCommand(revalidatedPromotion),
       );
@@ -231,62 +321,20 @@ export class ActivatePromotions {
       );
 
       return 'success';
-    } catch (error: unknown) {
-      const reason = error instanceof Error ? error.message : 'Unknown activation error';
-      const revalidatedPromotion = await this.tryRevalidatePromotionOnFailure(promotion, input);
-      await this.builder.promotionRepository.update({
-        ...revalidatedPromotion,
-        status: PromotionStatus.FAILED_ACTIVATION,
-        metadata: {
-          ...revalidatedPromotion.metadata,
-          updatedBy: input.updatedBy,
-          sourceProcess: input.sourceProcess,
-          statusReason: reason,
-          reason,
-        },
-        auditTrail: [
-          ...revalidatedPromotion.auditTrail,
-          {
-            process: input.sourceProcess,
-            status: PromotionStatus.FAILED_ACTIVATION,
-            reason,
-            executedAt: new Date(),
-          },
-        ],
-      });
-      Logger.error(
-        JSON.stringify({
-          message: 'Promotion activation failed',
-          process: 'activate',
-          sourceProcess: input.sourceProcess,
-          promotionId: revalidatedPromotion.promotionId,
-          itemId: revalidatedPromotion.itemId,
-          reason,
-        }),
-      );
-
+    } catch (activationError: unknown) {
+      const reason =
+        activationError instanceof Error ? activationError.message : 'Unknown activation error';
+      await this.markAsFailed(revalidatedPromotion, input, reason);
       return 'failure';
     }
   }
 
-  private async revalidatePromotion(
+  private buildRevalidatedPromotion(
     promotion: Promotion,
+    salePrice: number,
+    metrics: PriceMetrics,
     input: ActivatePromotionsInput,
-  ): Promise<Promotion> {
-    const salePrice = this.resolveProfitabilitySalePrice(promotion);
-    if (!Number.isFinite(salePrice)) {
-      throw new Error(`Missing profitability sale price for item ${promotion.itemId}`);
-    }
-
-    const metrics = await this.builder.priceApiRepository.getMetrics({
-      itemId: promotion.itemId,
-      sku: promotion.sku,
-      categoryId: promotion.categoryId,
-      publicationType: promotion.listingTypeId,
-      salePrice,
-      meliContributionPercentage: promotion.terms?.resignation?.mercadolibre?.percentage,
-    });
-
+  ): Promotion {
     return {
       ...promotion,
       prices: {
@@ -313,22 +361,41 @@ export class ActivatePromotions {
     };
   }
 
-  private async tryRevalidatePromotionOnFailure(
+  private async markAsFailed(
     promotion: Promotion,
     input: ActivatePromotionsInput,
-  ): Promise<Promotion> {
-    try {
-      return await this.revalidatePromotion(promotion, input);
-    } catch {
-      return {
-        ...promotion,
-        metadata: {
-          ...promotion.metadata,
-          updatedBy: input.updatedBy,
-          sourceProcess: input.sourceProcess,
+    reason: string,
+  ): Promise<void> {
+    await this.builder.promotionRepository.update({
+      ...promotion,
+      status: PromotionStatus.FAILED_ACTIVATION,
+      metadata: {
+        ...promotion.metadata,
+        updatedBy: input.updatedBy,
+        sourceProcess: input.sourceProcess,
+        statusReason: reason,
+        reason,
+      },
+      auditTrail: [
+        ...promotion.auditTrail,
+        {
+          process: input.sourceProcess,
+          status: PromotionStatus.FAILED_ACTIVATION,
+          reason,
+          executedAt: new Date(),
         },
-      };
-    }
+      ],
+    });
+    Logger.error(
+      JSON.stringify({
+        message: 'Promotion activation failed',
+        process: 'activate',
+        sourceProcess: input.sourceProcess,
+        promotionId: promotion.promotionId,
+        itemId: promotion.itemId,
+        reason,
+      }),
+    );
   }
 
   private resolveProfitabilitySalePrice(promotion: Promotion): number {
