@@ -76,7 +76,12 @@ export class APIMercadolibreApiRepository
 
     const promotionResults = await Promise.all(
       filteredResults.map(async (promotion) => {
-        const itemsPaginated = await this.getElegibleItemsPaginated(promotion.id, promotion.type);
+        const itemsPaginated = await this.getElegibleItemsPaginated(
+          promotion.id,
+          promotion.type,
+          undefined,
+          1,
+        );
 
         return {
           promotionId: promotion.id,
@@ -113,10 +118,11 @@ export class APIMercadolibreApiRepository
     promotionId: string,
     promotionType: string,
     searchAfter?: string,
+    limit?: number,
   ): Promise<MeliPaginatedResponse<EligibleItem>> {
     const params = new URLSearchParams({
       promotion_type: promotionType,
-      limit: APIMercadolibreApiRepository.ELIGIBLE_ITEMS_PAGE_LIMIT,
+      limit: limit ? String(limit) : APIMercadolibreApiRepository.ELIGIBLE_ITEMS_PAGE_LIMIT,
     });
 
     if (searchAfter) {

@@ -128,6 +128,7 @@ export interface IAPIMercadolibreApiRepository {
     promotionId: string,
     promotionType: string,
     searchAfter?: string,
+    limit?: number,
   ): Promise<MeliPaginatedResponse<EligibleItem>>;
   getItemDetail(itemId: string): Promise<ItemDetail>;
   getItemDetailsBulk(itemIds: string[]): Promise<ItemDetail[]>;
