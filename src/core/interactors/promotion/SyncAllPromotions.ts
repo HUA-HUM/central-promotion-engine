@@ -125,12 +125,15 @@ export class SyncAllPromotions {
       let searchAfter: string | undefined;
 
       do {
+        const pageStartedAt = Date.now();
         const currentSearchAfter = searchAfter;
+        const eligibleItemsFetchStartedAt = Date.now();
         const response = await this.builder.mercadolibreApiRepository.getElegibleItemsPaginated(
           promotionCatalog.promotionId,
           promotionCatalog.type,
           currentSearchAfter,
         );
+        const eligibleItemsFetchDurationMs = Date.now() - eligibleItemsFetchStartedAt;
 
         const consolidated: Promotion[] = [];
         const failedPromotions: Promotion[] = [];
@@ -154,6 +157,7 @@ export class SyncAllPromotions {
         const enabledEligibleItems = eligibleItems.filter((item) => existingMlas.has(item.itemId));
         const buildCommands: PromotionBuilderInput[] = [];
 
+        const itemDetailFetchStartedAt = Date.now();
         const detailResults = await this.mapWithConcurrency(
           enabledEligibleItems,
           SyncAllPromotions.ITEM_DETAIL_CONCURRENCY,
@@ -169,6 +173,7 @@ export class SyncAllPromotions {
             };
           },
         );
+        const itemDetailFetchDurationMs = Date.now() - itemDetailFetchStartedAt;
 
         for (const detailResult of detailResults) {
           if (detailResult.status === 'fulfilled') {
@@ -228,7 +233,10 @@ export class SyncAllPromotions {
           );
         }
 
-        const resolvedMetrics = await this.priceMetricsResolver.resolve(metricsRequests);
+        const priceMetricsResolveStartedAt = Date.now();
+        const { results: resolvedMetrics, stats: priceMetricsStats } =
+          await this.priceMetricsResolver.resolve(metricsRequests);
+        const priceMetricsResolveDurationMs = Date.now() - priceMetricsResolveStartedAt;
 
         for (const resolved of resolvedMetrics) {
           try {
@@ -281,6 +289,7 @@ export class SyncAllPromotions {
           }
         }
 
+        const saveStartedAt = Date.now();
         if (failedPromotions.length > 0) {
           await this.persistFailedSyncPromotions(failedPromotions);
         }
@@ -289,9 +298,29 @@ export class SyncAllPromotions {
           await this.builder.saveAllPromotion.saveAll(consolidated);
           success += consolidated.length;
         }
+        const saveDurationMs = Date.now() - saveStartedAt;
 
-        console.log(
-          `Processed promotion ${promotionCatalog.promotionId} page, success: ${success}, failure: ${failure}`,
+        const pageDurationMs = Date.now() - pageStartedAt;
+        const meliApiCallCount = 1 + enabledEligibleItems.length;
+        const priceApiCallCount = priceMetricsStats.bulkCallCount + priceMetricsStats.individualFallbackCount;
+        Logger.info(
+          JSON.stringify({
+            message: 'Promotion sync page processed',
+            process: processName,
+            sourceProcess: input.sourceProcess,
+            promotionId: promotionCatalog.promotionId,
+            promotionType: promotionCatalog.type,
+            pageItemCount: eligibleItems.length,
+            pageDurationMs,
+            eligibleItemsFetchDurationMs,
+            itemDetailFetchDurationMs,
+            priceMetricsResolveDurationMs,
+            saveDurationMs,
+            meliApiCallCount,
+            priceApiCallCount,
+            success,
+            failure,
+          }),
         );
 
         if (!nextSearchAfter || nextSearchAfter === currentSearchAfter) {

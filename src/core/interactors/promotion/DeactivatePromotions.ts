@@ -243,7 +243,7 @@ export class DeactivatePromotions {
         }),
       );
 
-      const resolvedMetrics = await this.priceMetricsResolver.resolve(metricsRequests);
+      const { results: resolvedMetrics } = await this.priceMetricsResolver.resolve(metricsRequests);
 
       const metricsResults = await this.mapWithConcurrency(
         resolvedMetrics,

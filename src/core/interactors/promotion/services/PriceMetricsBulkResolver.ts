@@ -3,6 +3,7 @@ import {
   PriceMetrics,
   PriceMetricsInput,
 } from '@core/adapters/repositories/price-api/IAPIPriceApiRepository';
+import { Logger } from '@core/drivers/logger/Logger';
 
 export interface PriceMetricsRequest<TContext> {
   context: TContext;
@@ -16,33 +17,43 @@ export interface PriceMetricsResolvedRequest<TContext> {
   error?: Error;
 }
 
-export const buildPriceMetricsKey = (input: PriceMetricsInput): string =>
-  [
-    input.itemId,
-    input.sku ?? '',
-    input.categoryId,
-    input.publicationType,
-    String(input.salePrice),
-    String(input.meliContributionPercentage ?? ''),
-  ].join('|');
+export const buildPriceMetricsKey = (input: Pick<PriceMetricsInput, 'itemId' | 'sku'>): string =>
+  [input.itemId, input.sku ?? ''].join('|');
+
+export interface PriceMetricsResolveStats {
+  totalRequests: number;
+  bulkCallCount: number;
+  bulkMatchedCount: number;
+  individualFallbackCount: number;
+}
+
+export interface PriceMetricsResolveResult<TContext> {
+  results: PriceMetricsResolvedRequest<TContext>[];
+  stats: PriceMetricsResolveStats;
+}
 
 export class PriceMetricsBulkResolver {
-  private static readonly BULK_BATCH_SIZE = 40;
+  private static readonly BULK_BATCH_SIZE = 50;
 
   constructor(private readonly priceApiRepository: IAPIPriceApiRepository) {}
 
   async resolve<TContext>(
     requests: PriceMetricsRequest<TContext>[],
-  ): Promise<PriceMetricsResolvedRequest<TContext>[]> {
+  ): Promise<PriceMetricsResolveResult<TContext>> {
     if (requests.length === 0) {
-      return [];
+      return {
+        results: [],
+        stats: { totalRequests: 0, bulkCallCount: 0, bulkMatchedCount: 0, individualFallbackCount: 0 },
+      };
     }
 
     const bulkMetricsByKey = new Map<string, PriceMetrics>();
 
     const requestChunks = this.chunkArray(requests, PriceMetricsBulkResolver.BULK_BATCH_SIZE);
+    let bulkCallCount = 0;
 
     for (const chunk of requestChunks) {
+      bulkCallCount += 1;
       try {
         const bulkResponse = await this.priceApiRepository.getMetricsBulk(
           chunk.map((request) => request.input),
@@ -51,18 +62,37 @@ export class PriceMetricsBulkResolver {
         for (const result of bulkResponse) {
           bulkMetricsByKey.set(buildPriceMetricsKey(result.input), result.metrics);
         }
-      } catch {
-        // Fallback to single item requests below.
+
+        Logger.info(
+          JSON.stringify({
+            message: 'Price metrics bulk chunk resolved',
+            process: 'sync',
+            chunkRequestCount: chunk.length,
+            chunkResponseCount: bulkResponse.length,
+          }),
+        );
+      } catch (error) {
+        Logger.error(
+          JSON.stringify({
+            message: 'Price metrics bulk chunk failed, falling back to individual requests',
+            process: 'sync',
+            chunkRequestCount: chunk.length,
+            reason: error instanceof Error ? error.message : 'Unknown price metrics bulk error',
+          }),
+        );
       }
     }
 
     const resolved: PriceMetricsResolvedRequest<TContext>[] = [];
+    let bulkMatchedCount = 0;
+    let individualFallbackCount = 0;
 
     for (const request of requests) {
       const key = buildPriceMetricsKey(request.input);
       const bulkMetrics = bulkMetricsByKey.get(key);
 
       if (bulkMetrics) {
+        bulkMatchedCount += 1;
         resolved.push({
           context: request.context,
           input: request.input,
@@ -70,6 +100,8 @@ export class PriceMetricsBulkResolver {
         });
         continue;
       }
+
+      individualFallbackCount += 1;
 
       try {
         const metrics = await this.priceApiRepository.getMetrics(request.input);
@@ -87,7 +119,14 @@ export class PriceMetricsBulkResolver {
       }
     }
 
-    return resolved;
+    const stats: PriceMetricsResolveStats = {
+      totalRequests: requests.length,
+      bulkCallCount,
+      bulkMatchedCount,
+      individualFallbackCount,
+    };
+
+    return { results: resolved, stats };
   }
 
   private chunkArray<T>(items: T[], size: number): T[][] {
