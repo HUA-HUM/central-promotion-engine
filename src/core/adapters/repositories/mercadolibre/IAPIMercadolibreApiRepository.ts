@@ -130,6 +130,7 @@ export interface IAPIMercadolibreApiRepository {
     searchAfter?: string,
   ): Promise<MeliPaginatedResponse<EligibleItem>>;
   getItemDetail(itemId: string): Promise<ItemDetail>;
+  getItemDetailsBulk(itemIds: string[]): Promise<ItemDetail[]>;
   activatePromotion(command: ActivatePromotionCommand): Promise<{ offerId?: string; status: string }>;
   pauseOrDeletePromotion(command: PauseOrDeletePromotionCommand): Promise<{ status: string }>;
   updatePrice(command: UpdatePriceCommand): Promise<UpdatePriceResponse>;

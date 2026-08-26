@@ -40,7 +40,7 @@ export interface SyncAllPromotionsBuilder {
 
 export class SyncAllPromotions {
   private static readonly CAMPAIGN_EXISTS_BULK_LIMIT = 50;
-  private static readonly ITEM_DETAIL_CONCURRENCY = 10;
+  private static readonly ITEM_DETAIL_BULK_LIMIT = 20;
   private readonly promotionModelsRegistry: PromotionModelsRegistry;
   private readonly priceMetricsResolver: PriceMetricsBulkResolver;
 
@@ -158,40 +158,33 @@ export class SyncAllPromotions {
         const buildCommands: PromotionBuilderInput[] = [];
 
         const itemDetailFetchStartedAt = Date.now();
-        const detailResults = await this.mapWithConcurrency(
-          enabledEligibleItems,
-          SyncAllPromotions.ITEM_DETAIL_CONCURRENCY,
-          async (item) => {
-            const detail = await this.builder.mercadolibreApiRepository.getItemDetail(item.itemId);
-            if (!detail.categoryId) {
-              throw new Error(`Missing categoryId for item ${item.itemId}`);
-            }
-
-            return {
-              eligibleItem: item,
-              itemDetail: detail,
-            };
-          },
+        const itemDetails = await this.builder.mercadolibreApiRepository.getItemDetailsBulk(
+          enabledEligibleItems.map((item) => item.itemId),
         );
         const itemDetailFetchDurationMs = Date.now() - itemDetailFetchStartedAt;
+        const itemDetailByItemId = new Map(itemDetails.map((detail) => [detail.itemId, detail]));
 
-        for (const detailResult of detailResults) {
-          if (detailResult.status === 'fulfilled') {
+        for (const item of enabledEligibleItems) {
+          const detail = itemDetailByItemId.get(item.itemId);
+
+          if (detail && detail.categoryId) {
             buildCommands.push({
               promotionCatalog,
-              eligibleItem: detailResult.item.eligibleItem,
-              itemDetail: detailResult.item.itemDetail,
+              eligibleItem: item,
+              itemDetail: detail,
               input,
             });
             continue;
           }
 
           failure += 1;
-          const message = detailResult.error.message;
+          const message = detail
+            ? `Missing categoryId for item ${item.itemId}`
+            : `Item detail not returned by Mercado Libre bulk endpoint for item ${item.itemId}`;
           failedPromotions.push(
             this.buildFailedSyncPromotion({
               promotionCatalog,
-              eligibleItem: detailResult.item,
+              eligibleItem: item,
               input,
               reason: message,
             }),
@@ -201,7 +194,7 @@ export class SyncAllPromotions {
               message: 'Promotion sync item failed',
               process: processName,
               sourceProcess: input.sourceProcess,
-              itemId: detailResult.item.itemId,
+              itemId: item.itemId,
               promotionId: promotionCatalog.promotionId,
               reason: message,
             }),
@@ -301,7 +294,11 @@ export class SyncAllPromotions {
         const saveDurationMs = Date.now() - saveStartedAt;
 
         const pageDurationMs = Date.now() - pageStartedAt;
-        const meliApiCallCount = 1 + enabledEligibleItems.length;
+        const meliApiCallCount =
+          1 +
+          (enabledEligibleItems.length > 0
+            ? Math.ceil(enabledEligibleItems.length / SyncAllPromotions.ITEM_DETAIL_BULK_LIMIT)
+            : 0);
         const priceApiCallCount = priceMetricsStats.bulkCallCount + priceMetricsStats.individualFallbackCount;
         Logger.info(
           JSON.stringify({
@@ -510,53 +507,6 @@ export class SyncAllPromotions {
     }
 
     return chunks;
-  }
-
-  private async mapWithConcurrency<TItem, TResult>(
-    items: TItem[],
-    concurrency: number,
-    mapper: (item: TItem) => Promise<TResult>,
-  ): Promise<
-    Array<
-      | { status: 'fulfilled'; item: TResult }
-      | { status: 'rejected'; item: TItem; error: Error }
-    >
-  > {
-    const results: Array<
-      | { status: 'fulfilled'; item: TResult }
-      | { status: 'rejected'; item: TItem; error: Error }
-    > = new Array(items.length);
-    let currentIndex = 0;
-
-    const worker = async (): Promise<void> => {
-      while (currentIndex < items.length) {
-        const index = currentIndex;
-        currentIndex += 1;
-        const item = items[index];
-
-        try {
-          results[index] = {
-            status: 'fulfilled',
-            item: await mapper(item),
-          };
-        } catch (error) {
-          results[index] = {
-            status: 'rejected',
-            item,
-            error: error instanceof Error ? error : new Error('Unknown async mapping error'),
-          };
-        }
-      }
-    };
-
-    const workers = Array.from(
-      { length: Math.min(concurrency, items.length) },
-      () => worker(),
-    );
-
-    await Promise.all(workers);
-
-    return results;
   }
 
   private hasFutureStartDate(promotionCatalog: PromotionCatalog): boolean {
