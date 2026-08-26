@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
+import { AppConfigService } from '@app/drivers/config/AppConfigService';
 import { MongoPromotionRepository } from '@app/drivers/repositories/mongo/MongoPromotionRepository';
 import { Promotion, PromotionSchema } from '@core/entities/Promotion';
 import { PromotionCatalog, PromotionCatalogSchema } from '@core/entities/PromotionCatalog';
@@ -25,7 +26,7 @@ const repositories = [MongoPromotionRepository];
       { name: PromotionCatalog.name, schema: PromotionCatalogSchema },
     ]),
   ],
-  providers: repositories,
+  providers: [AppConfigService, ...repositories],
   exports: [MongooseModule, ...repositories],
 })
 export class MongoModule {}

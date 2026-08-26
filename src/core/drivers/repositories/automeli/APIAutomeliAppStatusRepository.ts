@@ -11,6 +11,7 @@ export interface APIAutomeliAppStatusRepositoryConfig {
   baseUrl: string;
   timeout: number;
   apiToken?: string;
+  metricsLoggingEnabled: boolean;
 }
 
 interface AutomeliAppStatusRawResponse {
@@ -31,6 +32,7 @@ export abstract class APIAutomeliAppStatusRepository extends APIHttpClient {
       baseUrl: repositoryConfig.baseUrl,
       timeout: repositoryConfig.timeout,
       service: 'automeli-api',
+      metricsLoggingEnabled: repositoryConfig.metricsLoggingEnabled,
     });
   }
 

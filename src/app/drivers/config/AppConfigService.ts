@@ -37,6 +37,7 @@ export class AppConfigService {
         'DEAL_PRICE_CONTROL_MAX_BASE_INCREASE_PERCENTAGE',
         0.3,
       ),
+      metricsLoggingEnabled: this.configService.get<string>('METRICS_LOGGING_ENABLED', 'false') === 'true',
     };
   }
 }

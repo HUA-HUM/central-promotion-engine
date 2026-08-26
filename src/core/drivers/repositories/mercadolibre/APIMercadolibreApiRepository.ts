@@ -24,6 +24,7 @@ export interface APIMercadolibreApiRepositoryConfig {
   apiToken?: string;
   syncPromotionTypes: string[];
   AppKey: string;
+  metricsLoggingEnabled: boolean;
 }
 
 interface MeliUpdatePriceRawResponse {
@@ -50,6 +51,7 @@ export class APIMercadolibreApiRepository
       baseUrl: repositoryConfig.baseUrl,
       timeout: repositoryConfig.timeout,
       service: 'mercadolibre-api',
+      metricsLoggingEnabled: repositoryConfig.metricsLoggingEnabled,
     });
   }
 

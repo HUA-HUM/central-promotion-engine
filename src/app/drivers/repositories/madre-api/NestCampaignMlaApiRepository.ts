@@ -13,6 +13,7 @@ export class NestCampaignMlaApiRepository extends APICampaignMlaApiRepository {
       baseUrl: config.campaignMlaApiBaseUrl,
       timeout: config.campaignMlaApiTimeout,
       apiToken: config.campaignMlaApiToken,
+      metricsLoggingEnabled: config.metricsLoggingEnabled,
     });
   }
 }

@@ -25,4 +25,5 @@ export interface AppConfig {
   automeliSellerId: number;
   dealPriceControlEnabled: boolean;
   dealPriceControlMaxBaseIncreasePercentage: number;
+  metricsLoggingEnabled: boolean;
 }

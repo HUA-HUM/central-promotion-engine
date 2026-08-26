@@ -128,9 +128,9 @@ export class DeactivatePromotions {
     };
 
     const finishedAt = new Date();
-    const durationMinutes = Number(
-      ((finishedAt.getTime() - startedAt.getTime()) / 60000).toFixed(2),
-    );
+    const durationMs = finishedAt.getTime() - startedAt.getTime();
+    const durationMinutes = Number((durationMs / 60000).toFixed(2));
+    const itemsPerSecond = Number((processResult.total / (durationMs / 1000)).toFixed(2));
 
     Logger.info(
       JSON.stringify({
@@ -141,6 +141,7 @@ export class DeactivatePromotions {
         startedAt: startedAt.toISOString(),
         finishedAt: finishedAt.toISOString(),
         durationMinutes,
+        itemsPerSecond,
         total: processResult.total,
         success: processResult.success,
         failure: processResult.failure,
@@ -274,9 +275,9 @@ export class DeactivatePromotions {
     };
 
     const finishedAt = new Date();
-    const durationMinutes = Number(
-      ((finishedAt.getTime() - startedAt.getTime()) / 60000).toFixed(2),
-    );
+    const durationMs = finishedAt.getTime() - startedAt.getTime();
+    const durationMinutes = Number((durationMs / 60000).toFixed(2));
+    const itemsPerSecond = Number((result.total / (durationMs / 1000)).toFixed(2));
 
     Logger.info(
       JSON.stringify({
@@ -287,6 +288,7 @@ export class DeactivatePromotions {
         startedAt: startedAt.toISOString(),
         finishedAt: finishedAt.toISOString(),
         durationMinutes,
+        itemsPerSecond,
         total: result.total,
         success: result.success,
         failure: result.failure,

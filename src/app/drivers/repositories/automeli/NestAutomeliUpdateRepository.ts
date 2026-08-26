@@ -16,6 +16,7 @@ export class NestAutomeliUpdateRepository extends APIAutomeliUpdateRepository {
       baseUrl: config.automeliApiBaseUrl,
       timeout: config.automeliApiTimeout,
       apiToken: config.automeliApiToken,
+      metricsLoggingEnabled: config.metricsLoggingEnabled,
     });
   }
 }
@@ -30,6 +31,7 @@ export class NestAutomeliEnableUpdateRepository extends APIAutomeliEnableUpdateR
       baseUrl: config.automeliApiBaseUrl,
       timeout: config.automeliApiTimeout,
       apiToken: config.automeliApiToken,
+      metricsLoggingEnabled: config.metricsLoggingEnabled,
     });
   }
 }

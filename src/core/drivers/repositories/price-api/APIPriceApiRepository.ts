@@ -16,6 +16,7 @@ export interface APIPriceApiRepositoryConfig {
   baseUrl: string;
   timeout: number;
   apiToken?: string;
+  metricsLoggingEnabled: boolean;
 }
 
 export class APIPriceApiRepository extends APIHttpClient implements IAPIPriceApiRepository {
@@ -25,6 +26,7 @@ export class APIPriceApiRepository extends APIHttpClient implements IAPIPriceApi
       baseUrl: repositoryConfig.baseUrl,
       timeout: repositoryConfig.timeout,
       service: 'price-api',
+      metricsLoggingEnabled: repositoryConfig.metricsLoggingEnabled,
     });
   }
 
