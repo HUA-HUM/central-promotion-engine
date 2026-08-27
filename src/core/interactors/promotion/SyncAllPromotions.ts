@@ -155,11 +155,7 @@ export class SyncAllPromotions {
       const promotionModel = this.promotionModelsRegistry.resolve(promotionCatalog.type);
       let currentSearchAfter: string | undefined;
       let pendingPage: Promise<MeliPaginatedResponse<EligibleItem>> | null =
-        this.builder.mercadolibreApiRepository.getElegibleItemsPaginated(
-          promotionCatalog.promotionId,
-          promotionCatalog.type,
-          currentSearchAfter,
-        );
+        this.startEligibleItemsPageFetch(promotionCatalog, currentSearchAfter);
 
       while (pendingPage) {
         const pagePromise: Promise<MeliPaginatedResponse<EligibleItem>> = pendingPage;
@@ -175,11 +171,7 @@ export class SyncAllPromotions {
 
         pendingPage =
           eligibleItems.length > 0 && nextSearchAfter && nextSearchAfter !== currentSearchAfter
-            ? this.builder.mercadolibreApiRepository.getElegibleItemsPaginated(
-                promotionCatalog.promotionId,
-                promotionCatalog.type,
-                nextSearchAfter,
-              )
+            ? this.startEligibleItemsPageFetch(promotionCatalog, nextSearchAfter)
             : null;
 
         if (eligibleItems.length === 0) {
@@ -545,6 +537,20 @@ export class SyncAllPromotions {
       existingMlas: new Set(params.eligibleItems.map((item) => item.itemId)),
       failureCount: 0,
     };
+  }
+
+  private startEligibleItemsPageFetch(
+    promotionCatalog: PromotionCatalog,
+    searchAfter: string | undefined,
+  ): Promise<MeliPaginatedResponse<EligibleItem>> {
+    const pagePromise = this.builder.mercadolibreApiRepository.getElegibleItemsPaginated(
+      promotionCatalog.promotionId,
+      promotionCatalog.type,
+      searchAfter,
+    );
+    void pagePromise.catch(() => undefined);
+
+    return pagePromise;
   }
 
   private chunkArray<T>(items: T[], size: number): T[][] {

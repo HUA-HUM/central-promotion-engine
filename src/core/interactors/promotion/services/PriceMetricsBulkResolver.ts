@@ -17,8 +17,14 @@ export interface PriceMetricsResolvedRequest<TContext> {
   error?: Error;
 }
 
-export const buildPriceMetricsKey = (input: Pick<PriceMetricsInput, 'itemId' | 'sku'>): string =>
-  [input.itemId, input.sku ?? ''].join('|');
+export const buildPriceMetricsKey = (
+  input: Pick<PriceMetricsInput, 'itemId' | 'sku' | 'salePrice'>,
+): string =>
+  [
+    input.itemId,
+    input.sku ?? '',
+    Number.isFinite(input.salePrice) ? input.salePrice.toFixed(2) : '',
+  ].join('|');
 
 export interface PriceMetricsResolveStats {
   totalRequests: number;
