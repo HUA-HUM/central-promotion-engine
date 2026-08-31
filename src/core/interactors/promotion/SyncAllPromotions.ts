@@ -1,4 +1,5 @@
 import { AppConfig } from '@app/drivers/config/AppConfig';
+import { IAPICatalogMeliApiRepository } from '@core/adapters/repositories/catalog-meli/IAPICatalogMeliApiRepository';
 import { IAPICampaignMlaApiRepository } from '@core/adapters/repositories/madre-api/IAPICampaignMlaApiRepository';
 import {
   EligibleItem,
@@ -17,6 +18,7 @@ import {
   PromotionBuilderInput,
 } from '@core/interactors/promotion/models/Promotion';
 import { mapWithConcurrency } from '@core/interactors/promotion/mapWithConcurrency';
+import { ItemDetailResolver } from '@core/interactors/promotion/services/ItemDetailResolver';
 import { PromotionModelsRegistry } from '@core/interactors/promotion/models/PromotionModelsRegistry';
 import { SaveAllPromotion } from '@core/interactors/promotion/SaveAllPromotion';
 import { DealPriceControlService } from '@core/interactors/promotion/services/DealPriceControlService';
@@ -38,6 +40,7 @@ export interface SyncAllPromotionsBuilder {
   config: AppConfig;
   dealPriceControlService?: DealPriceControlService;
   promotionRepository?: PromotionRepository;
+  catalogMeliApiRepository?: IAPICatalogMeliApiRepository;
 }
 
 export class SyncAllPromotions {
@@ -45,9 +48,15 @@ export class SyncAllPromotions {
   private static readonly ITEM_DETAIL_BULK_LIMIT = 20;
   private readonly promotionModelsRegistry: PromotionModelsRegistry;
   private readonly priceMetricsResolver: PriceMetricsBulkResolver;
+  private readonly itemDetailResolver: ItemDetailResolver;
 
   constructor(private readonly builder: SyncAllPromotionsBuilder) {
     this.priceMetricsResolver = new PriceMetricsBulkResolver(builder.priceApiRepository);
+    this.itemDetailResolver = new ItemDetailResolver({
+      mercadolibreApiRepository: builder.mercadolibreApiRepository,
+      catalogMeliApiRepository: builder.catalogMeliApiRepository,
+      enabled: builder.config.catalogMeliApiEnabled,
+    });
     this.promotionModelsRegistry = PromotionModelsRegistry.forSync(
       builder.priceApiRepository,
       builder.dealPriceControlService,
@@ -192,9 +201,10 @@ export class SyncAllPromotions {
         const buildCommands: PromotionBuilderInput[] = [];
 
         const itemDetailFetchStartedAt = Date.now();
-        const itemDetails = await this.builder.mercadolibreApiRepository.getItemDetailsBulk(
-          enabledEligibleItems.map((item) => item.itemId),
-        );
+        const { details: itemDetails, stats: itemDetailStats } =
+          await this.itemDetailResolver.resolveBulk(
+            enabledEligibleItems.map((item) => item.itemId),
+          );
         const itemDetailFetchDurationMs = Date.now() - itemDetailFetchStartedAt;
         const itemDetailByItemId = new Map(itemDetails.map((detail) => [detail.itemId, detail]));
 
@@ -214,7 +224,7 @@ export class SyncAllPromotions {
           failure += 1;
           const message = detail
             ? `Missing categoryId for item ${item.itemId}`
-            : `Item detail not returned by Mercado Libre bulk endpoint for item ${item.itemId}`;
+            : `Item detail not returned by Catalog-Meli nor Mercado Libre for item ${item.itemId}`;
           failedPromotions.push(
             this.buildFailedSyncPromotion({
               promotionCatalog,
@@ -328,11 +338,13 @@ export class SyncAllPromotions {
         const saveDurationMs = Date.now() - saveStartedAt;
 
         const pageDurationMs = Date.now() - pageStartedAt;
-        const meliApiCallCount =
-          1 +
-          (enabledEligibleItems.length > 0
-            ? Math.ceil(enabledEligibleItems.length / SyncAllPromotions.ITEM_DETAIL_BULK_LIMIT)
-            : 0);
+        const meliDetailCallCount =
+          itemDetailStats.meliFallbackItemCount > 0
+            ? Math.ceil(itemDetailStats.meliFallbackItemCount / SyncAllPromotions.ITEM_DETAIL_BULK_LIMIT)
+            : 0;
+        // 1 eligible-items page fetch (always Mercado Libre) + any item-detail bulk calls that
+        // fell back to Mercado Libre because Catalog-Meli was disabled/failed/missing the item.
+        const meliApiCallCount = 1 + meliDetailCallCount;
         const priceApiCallCount = priceMetricsStats.bulkCallCount + priceMetricsStats.individualFallbackCount;
         Logger.info(
           JSON.stringify({
@@ -348,6 +360,9 @@ export class SyncAllPromotions {
             priceMetricsResolveDurationMs,
             saveDurationMs,
             meliApiCallCount,
+            catalogMeliResolvedCount: itemDetailStats.catalogResolvedCount,
+            itemDetailMeliFallbackCount: itemDetailStats.meliFallbackItemCount,
+            catalogMeliFailed: itemDetailStats.catalogFailed,
             priceApiCallCount,
             success,
             failure,

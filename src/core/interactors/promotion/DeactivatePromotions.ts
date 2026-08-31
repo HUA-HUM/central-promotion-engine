@@ -1,6 +1,7 @@
 import { AppConfig } from '@app/drivers/config/AppConfig';
 import { ProcessResult } from '@core/adapters/dto/ProcessResult';
 import { Logger } from '@core/drivers/logger/Logger';
+import { IAPICatalogMeliApiRepository } from '@core/adapters/repositories/catalog-meli/IAPICatalogMeliApiRepository';
 import { IAPICampaignMlaApiRepository } from '@core/adapters/repositories/madre-api/IAPICampaignMlaApiRepository';
 import { IAPIMercadolibreApiRepository } from '@core/adapters/repositories/mercadolibre/IAPIMercadolibreApiRepository';
 import { IAPIPriceApiRepository } from '@core/adapters/repositories/price-api/IAPIPriceApiRepository';
@@ -14,6 +15,7 @@ import {
   PriceMetricsRequest,
 } from '@core/interactors/promotion/services/PriceMetricsBulkResolver';
 import { DealPriceControlService } from '@core/interactors/promotion/services/DealPriceControlService';
+import { ItemDetailResolver } from '@core/interactors/promotion/services/ItemDetailResolver';
 
 interface PromotionMetricsCandidate {
   promotion: Promotion;
@@ -39,6 +41,7 @@ export interface DeactivatePromotionsBuilder {
   priceApiRepository: IAPIPriceApiRepository;
   dealPriceControlService: DealPriceControlService;
   config: AppConfig;
+  catalogMeliApiRepository?: IAPICatalogMeliApiRepository;
 }
 
 export class DeactivatePromotions {
@@ -47,10 +50,16 @@ export class DeactivatePromotions {
   private static readonly DEACTIVATION_CONCURRENCY = 10;
   private readonly priceMetricsResolver: PriceMetricsBulkResolver;
   private readonly promotionModelsRegistry: PromotionModelsRegistry;
+  private readonly itemDetailResolver: ItemDetailResolver;
 
   constructor(private readonly builder: DeactivatePromotionsBuilder) {
     this.priceMetricsResolver = new PriceMetricsBulkResolver(builder.priceApiRepository);
     this.promotionModelsRegistry = PromotionModelsRegistry.forActivation();
+    this.itemDetailResolver = new ItemDetailResolver({
+      mercadolibreApiRepository: builder.mercadolibreApiRepository,
+      catalogMeliApiRepository: builder.catalogMeliApiRepository,
+      enabled: builder.config.catalogMeliApiEnabled,
+    });
   }
 
   async execute(input: DeactivatePromotionsInput): Promise<ProcessResult> {
@@ -726,7 +735,7 @@ export class DeactivatePromotions {
         return 'success';
       }
 
-      const itemDetail = await this.builder.mercadolibreApiRepository.getItemDetail(promotion.itemId);
+      const itemDetail = await this.itemDetailResolver.resolveOne(promotion.itemId);
       const currentSalePrice = itemDetail.price;
 
       if (!Number.isFinite(currentSalePrice)) {

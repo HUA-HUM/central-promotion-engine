@@ -22,6 +22,11 @@ export class AppConfigService {
       priceApiBaseUrl: this.configService.getOrThrow<string>('PRICE_API_BASE_URL'),
       priceApiTimeout: this.configService.get<number>('PRICE_API_TIMEOUT', 10000),
       priceApiToken:this.configService.get<string>('PRICE_API_TOKEN'),
+      catalogMeliApiBaseUrl: this.configService.getOrThrow<string>('CATALOG_MELI_API_BASE_URL'),
+      catalogMeliApiTimeout: this.configService.get<number>('CATALOG_MELI_API_TIMEOUT', 10000),
+      catalogMeliApiToken: this.configService.get<string>('CATALOG_MELI_API_TOKEN'),
+      catalogMeliApiEnabled:
+        this.configService.get<string>('CATALOG_MELI_API_ENABLED', 'true') === 'true',
       syncCron: this.configService.get<string>('SYNC_PROMOTIONS_CRON', '0 0 */12 * * *'),
       activateCron: this.configService.get<string>('ACTIVATE_PROMOTIONS_CRON', '0 0 */8 * * *'),
       deactivateCron: this.configService.get<string>('DEACTIVATE_PROMOTIONS_CRON', '0 0 */10 * * *'),

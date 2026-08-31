@@ -13,6 +13,10 @@ export interface AppConfig {
   priceApiBaseUrl: string;
   priceApiTimeout: number;
   priceApiToken?: string;
+  catalogMeliApiBaseUrl: string;
+  catalogMeliApiTimeout: number;
+  catalogMeliApiToken?: string;
+  catalogMeliApiEnabled: boolean;
   syncCron: string;
   activateCron: string;
   deactivateCron: string;
