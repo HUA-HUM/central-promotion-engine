@@ -33,7 +33,7 @@ export class AppConfigService {
       enabledCronProcesses: AppConfigService.parseEnabledCronProcesses(
         this.configService.get<string>('ENABLED_CRON_PROCESSES', ''),
       ),
-      defaultMinProfitability: this.configService.get<number>('DEFAULT_MIN_PROFITABILITY', 12),
+      defaultMinProfitability: this.configService.get<number>('DEFAULT_MIN_PROFITABILITY', 0),
       defaultMinProfit: this.configService.get<number>('DEFAULT_MIN_PROFIT', 0),
       syncPromotion: this.configService.get<string>('SYNC_PROMOTION', ''),
       syncPromotionConcurrency: this.configService.get<number>('SYNC_PROMOTION_CONCURRENCY', 3),

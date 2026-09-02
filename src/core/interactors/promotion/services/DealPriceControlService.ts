@@ -55,11 +55,10 @@ export class DealPriceControlService {
 
   async evaluate(input: DealPriceControlEvaluateInput): Promise<PromotionPriceControl> {
     if (!this.builder.config.dealPriceControlEnabled) {
-      return {
-        controlledBy: 'DEAL',
-        status: 'SKIPPED',
-        reason: 'DEAL price control is disabled (DEAL_PRICE_CONTROL_ENABLED=false)',
-      };
+      return this.resolveSkippedPriceControl(
+        input,
+        'DEAL price control is disabled (DEAL_PRICE_CONTROL_ENABLED=false)',
+      );
     }
 
     const referenceBasePrice = input.originalPrice ?? input.itemPrice;
@@ -302,15 +301,34 @@ export class DealPriceControlService {
   }
 
   private skipped(input: DealPriceControlEvaluateInput, reason: string): PromotionPriceControl {
+    const priceControl = this.resolveSkippedPriceControl(input, reason);
+
     Logger.info(
       JSON.stringify({
         message: 'DEAL price control skipped',
         process: 'deal-price-control',
         itemId: input.itemId,
-        status: 'SKIPPED',
+        status: priceControl.status,
+        updaterDisabled: priceControl.updaterDisabled ?? false,
         reason,
       }),
     );
+
+    return priceControl;
+  }
+
+  private resolveSkippedPriceControl(
+    input: DealPriceControlEvaluateInput,
+    reason: string,
+  ): PromotionPriceControl {
+    const existing = input.existingPriceControl;
+
+    if (
+      existing?.controlledBy === 'DEAL' &&
+      (existing.updaterDisabled === true || existing.status === 'RELEASED')
+    ) {
+      return { ...existing, reason };
+    }
 
     return {
       controlledBy: 'DEAL',
