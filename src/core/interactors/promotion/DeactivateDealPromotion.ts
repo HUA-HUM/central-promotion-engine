@@ -21,7 +21,7 @@ export interface DeactivateDealPromotionInput {
 
 export interface DeactivateDealPromotionItemResult {
   itemId: string;
-  status: 'success' | 'failure';
+  status: 'success' | 'skipped' | 'failure';
   action?: 'pause' | 'delete';
   reason?: string;
   promotion?: Promotion;
@@ -31,6 +31,7 @@ export interface DeactivateDealPromotionResult {
   promotionId: string;
   total: number;
   success: number;
+  skipped: number;
   failure: number;
 }
 
@@ -43,6 +44,17 @@ export interface DeactivateDealPromotionBuilder {
 export class DeactivateDealPromotion {
   private static readonly SOURCE_PROCESS = 'manual-deal-deactivate';
   private static readonly CONCURRENCY = 5;
+  /**
+   * Only promotions that are actually participating (or stuck trying to stop) can be manually
+   * deactivated — mirrors the automatic flow (`findActiveBatch` / `findFailedDeactivationBatch`).
+   * Items still SYNCED, already DELETED/FINISHED, etc. are reported as skipped instead of firing
+   * a pointless pause/delete on Mercado Libre (which would fail and mark them FAILED_DEACTIVATION).
+   */
+  private static readonly DEACTIVATABLE_STATUSES: PromotionStatus[] = [
+    PromotionStatus.ACTIVE,
+    PromotionStatus.PAUSED,
+    PromotionStatus.FAILED_DEACTIVATION,
+  ];
   private readonly promotionModelsRegistry = PromotionModelsRegistry.forActivation();
 
   constructor(private readonly builder: DeactivateDealPromotionBuilder) {}
@@ -107,6 +119,7 @@ export class DeactivateDealPromotion {
       promotionId,
       total: items.length,
       success: items.filter((item) => item.status === 'success').length,
+      skipped: items.filter((item) => item.status === 'skipped').length,
       failure: items.filter((item) => item.status === 'failure').length,
     };
   }
@@ -115,6 +128,25 @@ export class DeactivateDealPromotion {
     promotion: Promotion,
     input: DeactivateDealPromotionInput,
   ): Promise<DeactivateDealPromotionItemResult> {
+    if (!DeactivateDealPromotion.DEACTIVATABLE_STATUSES.includes(promotion.status)) {
+      const reason = `Item ${promotion.itemId} is in status ${promotion.status}; only ${DeactivateDealPromotion.DEACTIVATABLE_STATUSES.join(
+        '/',
+      )} promotions can be deactivated`;
+
+      // Logger.info(
+      //   JSON.stringify({
+      //     message: 'Manual DEAL deactivation skipped',
+      //     process: DeactivateDealPromotion.SOURCE_PROCESS,
+      //     promotionId: promotion.promotionId,
+      //     itemId: promotion.itemId,
+      //     status: promotion.status,
+      //     reason,
+      //   }),
+      // );
+
+      return { itemId: promotion.itemId, status: 'skipped', reason };
+    }
+
     const action: 'pause' | 'delete' = promotion.offerId ? 'pause' : 'delete';
 
     try {

@@ -47,6 +47,16 @@ export interface ActivateDealPromotionBuilder {
 export class ActivateDealPromotion {
   private static readonly SOURCE_PROCESS = 'manual-deal-activate';
   private static readonly CONCURRENCY = 5;
+  /**
+   * Only promotions in these statuses can be manually activated — same policy the automatic
+   * `ActivatePromotions` flow applies (`findPendingActivationBatch`). Anything already ACTIVE,
+   * PAUSED, DELETED or FINISHED is reported as skipped instead of re-hitting Mercado Libre /
+   * Automeli and risking a false FAILED_ACTIVATION on an item that is actually live.
+   */
+  private static readonly ACTIVATABLE_STATUSES: PromotionStatus[] = [
+    PromotionStatus.SYNCED,
+    PromotionStatus.FAILED_ACTIVATION,
+  ];
   private readonly promotionModelsRegistry = PromotionModelsRegistry.forActivation();
 
   constructor(private readonly builder: ActivateDealPromotionBuilder) {}
@@ -127,6 +137,16 @@ export class ActivateDealPromotion {
     input: ActivateDealPromotionInput,
     activeElsewhereItemIds: Set<string>,
   ): Promise<ActivateDealPromotionItemResult> {
+    if (!ActivateDealPromotion.ACTIVATABLE_STATUSES.includes(promotion.status)) {
+      return this.skipped(
+        promotion.itemId,
+        input,
+        `Item ${promotion.itemId} is in status ${promotion.status}; only ${ActivateDealPromotion.ACTIVATABLE_STATUSES.join(
+          '/',
+        )} promotions can be activated`,
+      );
+    }
+
     if (this.isDeadlineExpired(promotion)) {
       return this.skipped(
         promotion.itemId,
