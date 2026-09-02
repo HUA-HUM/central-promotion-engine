@@ -77,7 +77,9 @@ export class DealPriceControlService {
     }
 
     if (this.isProfitable(input.metrics, currentDealPrice)) {
-      return this.skipped(
+      // The overwhelming majority of DEAL items land here on every sync; logging one line
+      // each would drown the process, so this "no-op" skip is intentionally silent.
+      return this.resolveSkippedPriceControl(
         input,
         'DEAL is already profitable at max_discounted_price, no price control needed',
       );
@@ -87,8 +89,8 @@ export class DealPriceControlService {
       referenceBasePrice * (1 + this.builder.config.dealPriceControlMaxBaseIncreasePercentage);
     const maxDealPrice = maxBasePrice * discountRatio;
 
-    const targetDealPrice = await this.searchTargetDealPrice(input, currentDealPrice, maxDealPrice);
-    if (targetDealPrice === undefined) {
+    const searchResult = await this.searchTargetDealPrice(input, currentDealPrice, maxDealPrice);
+    if (searchResult === undefined) {
       return this.skipped(
         input,
         `Could not find a profitable DEAL price within the ${
@@ -97,6 +99,7 @@ export class DealPriceControlService {
       );
     }
 
+    const targetDealPrice = searchResult.price;
     const targetBasePrice = Math.ceil(targetDealPrice / discountRatio);
 
     const alreadyExcludedByThisDeal =
@@ -158,6 +161,7 @@ export class DealPriceControlService {
         targetBasePrice,
         discountRatio,
         maxBasePrice,
+        searchIterations: searchResult.iterations,
         automeliMatched,
         status: 'PRICE_UPDATED_PENDING_SYNC',
       }),
@@ -225,23 +229,12 @@ export class DealPriceControlService {
     input: DealPriceControlEvaluateInput,
     currentDealPrice: number,
     maxDealPrice: number,
-  ): Promise<number | undefined> {
+  ): Promise<{ price: number; iterations: number } | undefined> {
     if (maxDealPrice <= currentDealPrice) {
       return undefined;
     }
 
     const hiMetrics = await this.fetchMetrics(input, maxDealPrice);
-
-    Logger.info(
-      JSON.stringify({
-        message: 'DEAL price control target search attempt',
-        process: 'deal-price-control',
-        itemId: input.itemId,
-        triedPrice: maxDealPrice,
-        profitable: this.isProfitable(hiMetrics, maxDealPrice),
-      }),
-    );
-
     if (!this.isProfitable(hiMetrics, maxDealPrice)) {
       return undefined;
     }
@@ -249,33 +242,22 @@ export class DealPriceControlService {
     let lo = currentDealPrice;
     let hi = maxDealPrice;
     let bestPrice = maxDealPrice;
+    let iterations = 0;
 
     const tolerance = Math.max(
       DealPriceControlService.BINARY_SEARCH_MIN_PRICE_TOLERANCE,
       currentDealPrice * DealPriceControlService.BINARY_SEARCH_RELATIVE_TOLERANCE,
     );
 
-    for (
-      let iteration = 0;
-      iteration < DealPriceControlService.BINARY_SEARCH_MAX_ITERATIONS && hi - lo > tolerance;
-      iteration += 1
+    while (
+      iterations < DealPriceControlService.BINARY_SEARCH_MAX_ITERATIONS &&
+      hi - lo > tolerance
     ) {
+      iterations += 1;
       const mid = Math.floor((lo + hi) / 2);
       const metrics = await this.fetchMetrics(input, mid);
-      const profitable = this.isProfitable(metrics, mid);
 
-      Logger.info(
-        JSON.stringify({
-          message: 'DEAL price control target search attempt',
-          process: 'deal-price-control',
-          itemId: input.itemId,
-          iteration,
-          triedPrice: mid,
-          profitable,
-        }),
-      );
-
-      if (profitable) {
+      if (this.isProfitable(metrics, mid)) {
         bestPrice = mid;
         hi = mid;
       } else {
@@ -283,7 +265,7 @@ export class DealPriceControlService {
       }
     }
 
-    return bestPrice;
+    return { price: bestPrice, iterations };
   }
 
   private async fetchMetrics(
