@@ -93,7 +93,11 @@ export type PriceControlStatus =
   | 'PRICE_UPDATED_PENDING_SYNC'
   | 'ACTIVE'
   | 'RELEASED'
-  | 'SKIPPED';
+  | 'SKIPPED'
+  /** Base price bumped, ML applied it, DEAL is now profitable — nothing more to do. */
+  | 'SETTLED'
+  /** Gave up: ML never applied the bump, or it stayed unprofitable after repeated bumps. */
+  | 'EXHAUSTED';
 
 @Schema({ _id: false })
 export class PromotionPriceControl {
@@ -102,7 +106,7 @@ export class PromotionPriceControl {
 
   @Prop({
     required: true,
-    enum: ['PRICE_UPDATED_PENDING_SYNC', 'ACTIVE', 'RELEASED', 'SKIPPED'],
+    enum: ['PRICE_UPDATED_PENDING_SYNC', 'ACTIVE', 'RELEASED', 'SKIPPED', 'SETTLED', 'EXHAUSTED'],
   })
   status!: PriceControlStatus;
 
@@ -126,6 +130,17 @@ export class PromotionPriceControl {
 
   @Prop()
   lastPriceUpdateAt?: Date;
+
+  /** max_discounted_price observed before the first DEAL price bump — anchor for measuring ML recompose. */
+  @Prop()
+  originalMaxDiscountedPrice?: number;
+
+  /** How many times this DEAL has pushed a new base price to Mercado Libre. */
+  @Prop()
+  bumpCount?: number;
+
+  @Prop()
+  firstBumpAt?: Date;
 
   @Prop()
   reason?: string;

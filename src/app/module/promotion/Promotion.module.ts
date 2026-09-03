@@ -78,21 +78,18 @@ import { SyncOnePromotion } from '@core/interactors/promotion/SyncOnePromotion';
         automeliUpdateRepository: NestAutomeliUpdateRepository,
         automeliEnableUpdateRepository: NestAutomeliEnableUpdateRepository,
         mercadolibreApiRepository: NestMercadolibreApiRepository,
-        priceApiRepository: NestPriceApiRepository,
         configService: AppConfigService,
       ) =>
         new DealPriceControlService({
           automeliUpdateRepository,
           automeliEnableUpdateRepository,
           mercadolibreApiRepository,
-          priceApiRepository,
           config: configService.get(),
         }),
       inject: [
         NestAutomeliUpdateRepository,
         NestAutomeliEnableUpdateRepository,
         NestMercadolibreApiRepository,
-        NestPriceApiRepository,
         AppConfigService,
       ],
     },

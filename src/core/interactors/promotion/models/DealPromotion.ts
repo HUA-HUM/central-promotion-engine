@@ -61,6 +61,7 @@ export class DealPromotion extends GenericPromotion {
 
     const priceControl = await dealPriceControlService.evaluate({
       itemId: context.eligibleItem.itemId,
+      promotionId: context.promotionCatalog.promotionId,
       sku: context.itemDetail.sku,
       categoryId: context.itemDetail.categoryId,
       publicationType: context.itemDetail.listingTypeId,
