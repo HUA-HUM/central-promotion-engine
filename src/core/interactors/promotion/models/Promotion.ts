@@ -8,6 +8,7 @@ import {
 import { IAPIPriceApiRepository, PriceMetrics } from '@core/adapters/repositories/price-api/IAPIPriceApiRepository';
 import { Promotion, PromotionStatus } from '@core/entities/Promotion';
 import { PromotionCatalog, PromotionType } from '@core/entities/PromotionCatalog';
+import { DealPriceControlService } from '@core/interactors/promotion/services/DealPriceControlService';
 
 export interface PromotionExecutionContext {
   sourceProcess: string;
@@ -27,16 +28,27 @@ export interface PromotionBuilder {
   build(command: PromotionBuilderInput): Promise<Promotion>;
 }
 
+export interface PromotionPriceControlHookParams {
+  promotion: Promotion;
+  context: PromotionBuilderInput;
+  metrics: PriceMetrics;
+  existingPromotion?: Promotion;
+}
+
 export interface PromotionModel extends PromotionBuilder {
   buildActivationCommand(promotion: Promotion): ActivatePromotionCommand;
   buildDeactivationCommand(
     promotion: Promotion,
     action: 'pause' | 'delete',
   ): PauseOrDeletePromotionCommand;
+  resolveSyncSalePrice(eligibleItem: EligibleItem, itemDetail: ItemDetail): number;
+  applyPriceControl?(params: PromotionPriceControlHookParams): Promise<Promotion>;
 }
 
 export interface PromotionBuilderDependencies {
   priceApiRepository: IAPIPriceApiRepository;
+  dealPriceControlService?: DealPriceControlService;
+  metricsLoggingEnabled?: boolean;
 }
 
 export class GenericPromotion implements PromotionModel {
@@ -156,5 +168,9 @@ export class GenericPromotion implements PromotionModel {
       itemId: promotion.itemId,
       action,
     };
+  }
+
+  resolveSyncSalePrice(eligibleItem: EligibleItem, itemDetail: ItemDetail): number {
+    return eligibleItem.suggestedPrice ?? itemDetail.price ?? 0;
   }
 }

@@ -1,17 +1,21 @@
 import { AppConfig } from '@app/drivers/config/AppConfig';
 import { ProcessResult } from '@core/adapters/dto/ProcessResult';
 import { Logger } from '@core/drivers/logger/Logger';
+import { IAPICatalogMeliApiRepository } from '@core/adapters/repositories/catalog-meli/IAPICatalogMeliApiRepository';
 import { IAPICampaignMlaApiRepository } from '@core/adapters/repositories/madre-api/IAPICampaignMlaApiRepository';
 import { IAPIMercadolibreApiRepository } from '@core/adapters/repositories/mercadolibre/IAPIMercadolibreApiRepository';
 import { IAPIPriceApiRepository } from '@core/adapters/repositories/price-api/IAPIPriceApiRepository';
 import { PromotionRepository } from '@core/adapters/repositories/IPromotionRepository';
 import { Promotion, PromotionStatus } from '@core/entities/Promotion';
 import { PromotionType } from '@core/entities/PromotionCatalog';
+import { mapWithConcurrency } from '@core/interactors/promotion/mapWithConcurrency';
 import { PromotionModelsRegistry } from '@core/interactors/promotion/models/PromotionModelsRegistry';
 import {
   PriceMetricsBulkResolver,
   PriceMetricsRequest,
 } from '@core/interactors/promotion/services/PriceMetricsBulkResolver';
+import { DealPriceControlService } from '@core/interactors/promotion/services/DealPriceControlService';
+import { ItemDetailResolver } from '@core/interactors/promotion/services/ItemDetailResolver';
 
 interface PromotionMetricsCandidate {
   promotion: Promotion;
@@ -35,7 +39,9 @@ export interface DeactivatePromotionsBuilder {
   campaignMlaApiRepository: IAPICampaignMlaApiRepository;
   mercadolibreApiRepository: IAPIMercadolibreApiRepository;
   priceApiRepository: IAPIPriceApiRepository;
+  dealPriceControlService: DealPriceControlService;
   config: AppConfig;
+  catalogMeliApiRepository?: IAPICatalogMeliApiRepository;
 }
 
 export class DeactivatePromotions {
@@ -44,10 +50,16 @@ export class DeactivatePromotions {
   private static readonly DEACTIVATION_CONCURRENCY = 10;
   private readonly priceMetricsResolver: PriceMetricsBulkResolver;
   private readonly promotionModelsRegistry: PromotionModelsRegistry;
+  private readonly itemDetailResolver: ItemDetailResolver;
 
   constructor(private readonly builder: DeactivatePromotionsBuilder) {
     this.priceMetricsResolver = new PriceMetricsBulkResolver(builder.priceApiRepository);
     this.promotionModelsRegistry = PromotionModelsRegistry.forActivation();
+    this.itemDetailResolver = new ItemDetailResolver({
+      mercadolibreApiRepository: builder.mercadolibreApiRepository,
+      catalogMeliApiRepository: builder.catalogMeliApiRepository,
+      enabled: builder.config.catalogMeliApiEnabled,
+    });
   }
 
   async execute(input: DeactivatePromotionsInput): Promise<ProcessResult> {
@@ -96,7 +108,7 @@ export class DeactivatePromotions {
       total += promotions.length;
       lastProcessedId = this.resolveLastProcessedId(promotions, lastProcessedId);
 
-      const results = await this.mapWithConcurrency(
+      const results = await mapWithConcurrency(
         promotions,
         DeactivatePromotions.DEACTIVATION_CONCURRENCY,
         async (promotion) => this.retryFailedPromotion(promotion, input),
@@ -126,9 +138,9 @@ export class DeactivatePromotions {
     };
 
     const finishedAt = new Date();
-    const durationMinutes = Number(
-      ((finishedAt.getTime() - startedAt.getTime()) / 60000).toFixed(2),
-    );
+    const durationMs = finishedAt.getTime() - startedAt.getTime();
+    const durationMinutes = Number((durationMs / 60000).toFixed(2));
+    const itemsPerSecond = Number((processResult.total / (durationMs / 1000)).toFixed(2));
 
     Logger.info(
       JSON.stringify({
@@ -139,6 +151,7 @@ export class DeactivatePromotions {
         startedAt: startedAt.toISOString(),
         finishedAt: finishedAt.toISOString(),
         durationMinutes,
+        itemsPerSecond,
         total: processResult.total,
         success: processResult.success,
         failure: processResult.failure,
@@ -219,6 +232,11 @@ export class DeactivatePromotions {
           failure += 1;
           continue;
         }
+
+        if (batchPreparationResult.kind === 'skipped') {
+          skipped += 1;
+          continue;
+        }
       }
 
       const metricsRequests: PriceMetricsRequest<PromotionMetricsCandidate>[] = metricsCandidates.map(
@@ -235,9 +253,9 @@ export class DeactivatePromotions {
         }),
       );
 
-      const resolvedMetrics = await this.priceMetricsResolver.resolve(metricsRequests);
+      const { results: resolvedMetrics } = await this.priceMetricsResolver.resolve(metricsRequests);
 
-      const metricsResults = await this.mapWithConcurrency(
+      const metricsResults = await mapWithConcurrency(
         resolvedMetrics,
         DeactivatePromotions.DEACTIVATION_CONCURRENCY,
         async (resolved) => this.processResolvedMetrics(resolved.context, resolved.metrics, resolved.error, input),
@@ -267,9 +285,9 @@ export class DeactivatePromotions {
     };
 
     const finishedAt = new Date();
-    const durationMinutes = Number(
-      ((finishedAt.getTime() - startedAt.getTime()) / 60000).toFixed(2),
-    );
+    const durationMs = finishedAt.getTime() - startedAt.getTime();
+    const durationMinutes = Number((durationMs / 60000).toFixed(2));
+    const itemsPerSecond = Number((result.total / (durationMs / 1000)).toFixed(2));
 
     Logger.info(
       JSON.stringify({
@@ -280,6 +298,7 @@ export class DeactivatePromotions {
         startedAt: startedAt.toISOString(),
         finishedAt: finishedAt.toISOString(),
         durationMinutes,
+        itemsPerSecond,
         total: result.total,
         success: result.success,
         failure: result.failure,
@@ -318,6 +337,52 @@ export class DeactivatePromotions {
         },
       ],
     });
+  }
+
+  private async finishExpiredDeal(
+    promotion: Promotion,
+    input: DeactivatePromotionsInput,
+  ): Promise<void> {
+    const releasedPriceControl = await this.builder.dealPriceControlService.release(promotion);
+
+    const now = new Date();
+    const reason = 'Promotion is outside valid date range';
+
+    await this.builder.promotionRepository.update({
+      ...promotion,
+      status: PromotionStatus.FINISHED,
+      priceControl: releasedPriceControl,
+      metadata: {
+        ...promotion.metadata,
+        deactivatedAt: now,
+        updatedBy: input.updatedBy,
+        sourceProcess: input.sourceProcess,
+        reason,
+        statusReason: 'DEAL promotion finished automatically because it is outside valid date range',
+      },
+      auditTrail: [
+        ...promotion.auditTrail,
+        {
+          process: input.sourceProcess,
+          status: PromotionStatus.FINISHED,
+          reason,
+          executedAt: now,
+        },
+      ],
+    });
+
+    Logger.info(
+      JSON.stringify({
+        message: 'DEAL promotion finished automatically and Automeli released',
+        process: 'deactivate',
+        sourceProcess: input.sourceProcess,
+        updatedBy: input.updatedBy,
+        promotionId: promotion.promotionId,
+        itemId: promotion.itemId,
+        automeliReleased: releasedPriceControl?.status === 'RELEASED',
+        priceControlStatus: releasedPriceControl?.status,
+      }),
+    );
   }
 
   private buildPromotionWithUpdatedMetrics(
@@ -448,8 +513,29 @@ export class DeactivatePromotions {
     | { kind: 'candidate'; candidate: PromotionMetricsCandidate }
     | { kind: 'success' }
     | { kind: 'failure' }
+    | { kind: 'skipped' }
   > {
     try {
+      if (promotion.type === PromotionType.DEAL) {
+        if (this.isPromotionOutOfDate(promotion)) {
+          await this.finishExpiredDeal(promotion, input);
+          return { kind: 'success' };
+        }
+
+        Logger.info(
+          JSON.stringify({
+            message: 'Skipping DEAL deactivation because DEAL promotions require manual deactivation',
+            process: 'deactivate',
+            sourceProcess: input.sourceProcess,
+            promotionId: promotion.promotionId,
+            itemId: promotion.itemId,
+            updatedBy: input.updatedBy,
+          }),
+        );
+
+        return { kind: 'skipped' };
+      }
+
       if (this.isPromotionOutOfDate(promotion)) {
         await this.markAs(
           promotion,
@@ -618,6 +704,26 @@ export class DeactivatePromotions {
     input: DeactivatePromotionsInput,
   ): Promise<'success' | 'failure' | 'skipped'> {
     try {
+      if (promotion.type === PromotionType.DEAL) {
+        if (this.isPromotionOutOfDate(promotion)) {
+          await this.finishExpiredDeal(promotion, input);
+          return 'success';
+        }
+
+        Logger.info(
+          JSON.stringify({
+            message: 'Skipping DEAL deactivation retry because DEAL promotions require manual deactivation',
+            process: 'deactivate-failed',
+            sourceProcess: input.sourceProcess,
+            promotionId: promotion.promotionId,
+            itemId: promotion.itemId,
+            updatedBy: input.updatedBy,
+          }),
+        );
+
+        return 'skipped';
+      }
+
       if (this.isPromotionOutOfDate(promotion)) {
         await this.markAs(
           promotion,
@@ -629,7 +735,7 @@ export class DeactivatePromotions {
         return 'success';
       }
 
-      const itemDetail = await this.builder.mercadolibreApiRepository.getItemDetail(promotion.itemId);
+      const itemDetail = await this.itemDetailResolver.resolveOne(promotion.itemId);
       const currentSalePrice = itemDetail.price;
 
       if (!Number.isFinite(currentSalePrice)) {
@@ -792,32 +898,6 @@ export class DeactivatePromotions {
     };
 
     return lastPromotion._id?.toString() ?? fallback;
-  }
-
-  private async mapWithConcurrency<TItem, TResult>(
-    items: TItem[],
-    concurrency: number,
-    mapper: (item: TItem) => Promise<TResult>,
-  ): Promise<TResult[]> {
-    const results: TResult[] = new Array(items.length);
-    let currentIndex = 0;
-
-    const worker = async (): Promise<void> => {
-      while (currentIndex < items.length) {
-        const index = currentIndex;
-        currentIndex += 1;
-        results[index] = await mapper(items[index]);
-      }
-    };
-
-    const workers = Array.from(
-      { length: Math.min(concurrency, items.length) },
-      () => worker(),
-    );
-
-    await Promise.all(workers);
-
-    return results;
   }
 
   private profitabilityPasses(

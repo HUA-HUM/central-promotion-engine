@@ -1,18 +1,18 @@
 import { HttpService } from '@nestjs/axios';
 import { Injectable } from '@nestjs/common';
 import { AppConfigService } from '@app/drivers/config/AppConfigService';
-import { APICampaignMlaApiRepository } from '@core/drivers/repositories/madre-api/APICampaignMlaApiRepository';
+import { APICatalogMeliApiRepository } from '@core/drivers/repositories/catalog-meli/APICatalogMeliApiRepository';
 
 @Injectable()
-export class NestCampaignMlaApiRepository extends APICampaignMlaApiRepository {
+export class NestCatalogMeliApiRepository extends APICatalogMeliApiRepository {
   constructor(httpService: HttpService, configService: AppConfigService) {
     const config = configService.get();
 
     super({
       axios: httpService.axiosRef,
-      baseUrl: config.campaignMlaApiBaseUrl,
-      timeout: config.campaignMlaApiTimeout,
-      apiToken: config.campaignMlaApiToken,
+      baseUrl: config.catalogMeliApiBaseUrl,
+      timeout: config.catalogMeliApiTimeout,
+      apiToken: config.catalogMeliApiToken,
       metricsLoggingEnabled: config.metricsLoggingEnabled,
     });
   }

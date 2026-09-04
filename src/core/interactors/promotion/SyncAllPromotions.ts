@@ -1,21 +1,27 @@
 import { AppConfig } from '@app/drivers/config/AppConfig';
+import { IAPICatalogMeliApiRepository } from '@core/adapters/repositories/catalog-meli/IAPICatalogMeliApiRepository';
 import { IAPICampaignMlaApiRepository } from '@core/adapters/repositories/madre-api/IAPICampaignMlaApiRepository';
 import {
   EligibleItem,
   IAPIMercadolibreApiRepository,
   ItemDetail,
+  MeliPaginatedResponse,
 } from '@core/adapters/repositories/mercadolibre/IAPIMercadolibreApiRepository';
+import { PromotionRepository } from '@core/adapters/repositories/IPromotionRepository';
 import { IAPIPriceApiRepository } from '@core/adapters/repositories/price-api/IAPIPriceApiRepository';
 import { ProcessResult } from '@core/adapters/dto/ProcessResult';
 import { Logger } from '@core/drivers/logger/Logger';
 import { Promotion } from '@core/entities/Promotion';
 import { PromotionStatus } from '@core/entities/Promotion';
-import { PromotionCatalog, PromotionType } from '@core/entities/PromotionCatalog';
+import { PromotionCatalog } from '@core/entities/PromotionCatalog';
 import {
   PromotionBuilderInput,
 } from '@core/interactors/promotion/models/Promotion';
+import { mapWithConcurrency } from '@core/interactors/promotion/mapWithConcurrency';
+import { ItemDetailResolver } from '@core/interactors/promotion/services/ItemDetailResolver';
 import { PromotionModelsRegistry } from '@core/interactors/promotion/models/PromotionModelsRegistry';
 import { SaveAllPromotion } from '@core/interactors/promotion/SaveAllPromotion';
+import { DealPriceControlService } from '@core/interactors/promotion/services/DealPriceControlService';
 import {
   PriceMetricsBulkResolver,
   PriceMetricsRequest,
@@ -32,17 +38,30 @@ export interface SyncAllPromotionsBuilder {
   priceApiRepository: IAPIPriceApiRepository;
   saveAllPromotion: SaveAllPromotion;
   config: AppConfig;
+  dealPriceControlService?: DealPriceControlService;
+  promotionRepository?: PromotionRepository;
+  catalogMeliApiRepository?: IAPICatalogMeliApiRepository;
 }
 
 export class SyncAllPromotions {
   private static readonly CAMPAIGN_EXISTS_BULK_LIMIT = 50;
-  private static readonly ITEM_DETAIL_CONCURRENCY = 10;
+  private static readonly ITEM_DETAIL_BULK_LIMIT = 20;
   private readonly promotionModelsRegistry: PromotionModelsRegistry;
   private readonly priceMetricsResolver: PriceMetricsBulkResolver;
+  private readonly itemDetailResolver: ItemDetailResolver;
 
   constructor(private readonly builder: SyncAllPromotionsBuilder) {
     this.priceMetricsResolver = new PriceMetricsBulkResolver(builder.priceApiRepository);
-    this.promotionModelsRegistry = PromotionModelsRegistry.forSync(builder.priceApiRepository);
+    this.itemDetailResolver = new ItemDetailResolver({
+      mercadolibreApiRepository: builder.mercadolibreApiRepository,
+      catalogMeliApiRepository: builder.catalogMeliApiRepository,
+      enabled: builder.config.catalogMeliApiEnabled,
+    });
+    this.promotionModelsRegistry = PromotionModelsRegistry.forSync(
+      builder.priceApiRepository,
+      builder.dealPriceControlService,
+      builder.config.metricsLoggingEnabled,
+    );
   }
 
   async execute(input: SyncAllPromotionsInput): Promise<ProcessResult> {
@@ -62,9 +81,9 @@ export class SyncAllPromotions {
     const result = await this.syncPromotionCatalogs(promotionCatalogs, input, 'sync');
 
     const finishedAt = new Date();
-    const durationMinutes = Number(
-      ((finishedAt.getTime() - startedAt.getTime()) / 60000).toFixed(2),
-    );
+    const durationMs = finishedAt.getTime() - startedAt.getTime();
+    const durationMinutes = Number((durationMs / 60000).toFixed(2));
+    const itemsPerSecond = Number((result.total / (durationMs / 1000)).toFixed(2));
 
     Logger.info(
       JSON.stringify({
@@ -75,6 +94,7 @@ export class SyncAllPromotions {
         startedAt: startedAt.toISOString(),
         finishedAt: finishedAt.toISOString(),
         durationMinutes,
+        itemsPerSecond,
         total: result.total,
         success: result.success,
         failure: result.failure,
@@ -91,42 +111,77 @@ export class SyncAllPromotions {
     processName: string,
   ): Promise<ProcessResult> {
     await this.builder.saveAllPromotion.saveCatalogs(promotionCatalogs);
+
+    const concurrency = Math.max(1, this.builder.config.syncPromotionConcurrency || 1);
+    const catalogResults = await mapWithConcurrency(promotionCatalogs, concurrency, (promotionCatalog) =>
+      this.syncOnePromotionCatalog(promotionCatalog, input, processName),
+    );
+
+    const totals = catalogResults.reduce(
+      (acc, result) => ({
+        success: acc.success + result.success,
+        failure: acc.failure + result.failure,
+        skipped: acc.skipped + result.skipped,
+      }),
+      { success: 0, failure: 0, skipped: 0 },
+    );
+
+    return {
+      process: processName,
+      total: totals.success + totals.failure + totals.skipped,
+      success: totals.success,
+      failure: totals.failure,
+      skipped: totals.skipped,
+    };
+  }
+
+  private async syncOnePromotionCatalog(
+    promotionCatalog: PromotionCatalog,
+    input: SyncAllPromotionsInput,
+    processName: string,
+  ): Promise<{ success: number; failure: number; skipped: number }> {
+    if (this.hasFutureStartDate(promotionCatalog)) {
+      Logger.info(
+        JSON.stringify({
+          message: 'Promotion sync skipped because start date has not been reached',
+          process: processName,
+          sourceProcess: input.sourceProcess,
+          updatedBy: input.updatedBy,
+          promotionId: promotionCatalog.promotionId,
+          promotionType: promotionCatalog.type,
+          startDate: promotionCatalog.startDate?.toISOString() ?? null,
+          currentDate: new Date().toISOString(),
+        }),
+      );
+      return { success: 0, failure: 0, skipped: 1 };
+    }
+
     let success = 0;
     let failure = 0;
-    let skipped = 0;
+    const skipped = 0;
 
-    for (const promotionCatalog of promotionCatalogs) {
-      if (this.hasFutureStartDate(promotionCatalog)) {
-        skipped += 1;
-        Logger.info(
-          JSON.stringify({
-            message: 'Promotion sync skipped because start date has not been reached',
-            process: processName,
-            sourceProcess: input.sourceProcess,
-            updatedBy: input.updatedBy,
-            promotionId: promotionCatalog.promotionId,
-            promotionType: promotionCatalog.type,
-            startDate: promotionCatalog.startDate?.toISOString() ?? null,
-            currentDate: new Date().toISOString(),
-          }),
-        );
-        continue;
-      }
+    try {
+      const promotionModel = this.promotionModelsRegistry.resolve(promotionCatalog.type);
+      let currentSearchAfter: string | undefined;
+      let pendingPage: Promise<MeliPaginatedResponse<EligibleItem>> | null =
+        this.startEligibleItemsPageFetch(promotionCatalog, currentSearchAfter);
 
-      let searchAfter: string | undefined;
-
-      do {
-        const currentSearchAfter = searchAfter;
-        const response = await this.builder.mercadolibreApiRepository.getElegibleItemsPaginated(
-          promotionCatalog.promotionId,
-          promotionCatalog.type,
-          currentSearchAfter,
-        );
+      while (pendingPage) {
+        const pagePromise: Promise<MeliPaginatedResponse<EligibleItem>> = pendingPage;
+        const pageStartedAt = Date.now();
+        const eligibleItemsFetchStartedAt = Date.now();
+        const response: MeliPaginatedResponse<EligibleItem> = await pagePromise;
+        const eligibleItemsFetchDurationMs = Date.now() - eligibleItemsFetchStartedAt;
 
         const consolidated: Promotion[] = [];
         const failedPromotions: Promotion[] = [];
-        const eligibleItems = response.results ?? [];
-        const nextSearchAfter = response.paging?.searchAfter;
+        const eligibleItems: EligibleItem[] = response.results ?? [];
+        const nextSearchAfter: string | undefined = response.paging?.searchAfter;
+
+        pendingPage =
+          eligibleItems.length > 0 && nextSearchAfter && nextSearchAfter !== currentSearchAfter
+            ? this.startEligibleItemsPageFetch(promotionCatalog, nextSearchAfter)
+            : null;
 
         if (eligibleItems.length === 0) {
           break;
@@ -145,39 +200,35 @@ export class SyncAllPromotions {
         const enabledEligibleItems = eligibleItems.filter((item) => existingMlas.has(item.itemId));
         const buildCommands: PromotionBuilderInput[] = [];
 
-        const detailResults = await this.mapWithConcurrency(
-          enabledEligibleItems,
-          SyncAllPromotions.ITEM_DETAIL_CONCURRENCY,
-          async (item) => {
-            const detail = await this.builder.mercadolibreApiRepository.getItemDetail(item.itemId);
-            if (!detail.categoryId) {
-              throw new Error(`Missing categoryId for item ${item.itemId}`);
-            }
+        const itemDetailFetchStartedAt = Date.now();
+        const { details: itemDetails, stats: itemDetailStats } =
+          await this.itemDetailResolver.resolveBulk(
+            enabledEligibleItems.map((item) => item.itemId),
+          );
+        const itemDetailFetchDurationMs = Date.now() - itemDetailFetchStartedAt;
+        const itemDetailByItemId = new Map(itemDetails.map((detail) => [detail.itemId, detail]));
 
-            return {
-              eligibleItem: item,
-              itemDetail: detail,
-            };
-          },
-        );
+        for (const item of enabledEligibleItems) {
+          const detail = itemDetailByItemId.get(item.itemId);
 
-        for (const detailResult of detailResults) {
-          if (detailResult.status === 'fulfilled') {
+          if (detail && detail.categoryId) {
             buildCommands.push({
               promotionCatalog,
-              eligibleItem: detailResult.item.eligibleItem,
-              itemDetail: detailResult.item.itemDetail,
+              eligibleItem: item,
+              itemDetail: detail,
               input,
             });
             continue;
           }
 
           failure += 1;
-          const message = detailResult.error.message;
+          const message = detail
+            ? `Missing categoryId for item ${item.itemId}`
+            : `Item detail not returned by Catalog-Meli nor Mercado Libre for item ${item.itemId}`;
           failedPromotions.push(
             this.buildFailedSyncPromotion({
               promotionCatalog,
-              eligibleItem: detailResult.item,
+              eligibleItem: item,
               input,
               reason: message,
             }),
@@ -187,7 +238,7 @@ export class SyncAllPromotions {
               message: 'Promotion sync item failed',
               process: processName,
               sourceProcess: input.sourceProcess,
-              itemId: detailResult.item.itemId,
+              itemId: item.itemId,
               promotionId: promotionCatalog.promotionId,
               reason: message,
             }),
@@ -202,17 +253,27 @@ export class SyncAllPromotions {
               sku: command.itemDetail.sku,
               categoryId: command.itemDetail.categoryId,
               publicationType: command.itemDetail.listingTypeId,
-              salePrice: this.resolveMetricsSalePrice(
-                command.promotionCatalog.type,
-                command.eligibleItem,
-                command.itemDetail,
-              ),
+              salePrice: promotionModel.resolveSyncSalePrice(command.eligibleItem, command.itemDetail),
               meliContributionPercentage: command.eligibleItem.meliPercentage,
             },
           }),
         );
 
-        const resolvedMetrics = await this.priceMetricsResolver.resolve(metricsRequests);
+        let existingPromotionsByItemId = new Map<string, Promotion>();
+        if (promotionModel.applyPriceControl && this.builder.promotionRepository && buildCommands.length > 0) {
+          const existingPromotions = await this.builder.promotionRepository.findByItemIds(
+            promotionCatalog.promotionId,
+            buildCommands.map((command) => command.eligibleItem.itemId),
+          );
+          existingPromotionsByItemId = new Map(
+            existingPromotions.map((promotion) => [promotion.itemId, promotion]),
+          );
+        }
+
+        const priceMetricsResolveStartedAt = Date.now();
+        const { results: resolvedMetrics, stats: priceMetricsStats } =
+          await this.priceMetricsResolver.resolve(metricsRequests);
+        const priceMetricsResolveDurationMs = Date.now() - priceMetricsResolveStartedAt;
 
         for (const resolved of resolvedMetrics) {
           try {
@@ -220,10 +281,25 @@ export class SyncAllPromotions {
               throw resolved.error;
             }
 
-            const promotion = await this.buildPromotion({
+            let promotion = await promotionModel.build({
               ...resolved.context,
               priceMetrics: resolved.metrics,
             });
+
+            if (promotionModel.applyPriceControl) {
+              const metrics = resolved.metrics;
+              if (!metrics) {
+                throw new Error(`Missing price metrics for item ${resolved.context.eligibleItem.itemId}`);
+              }
+
+              promotion = await promotionModel.applyPriceControl({
+                promotion,
+                context: resolved.context,
+                metrics,
+                existingPromotion: existingPromotionsByItemId.get(resolved.context.eligibleItem.itemId),
+              });
+            }
+
             consolidated.push(promotion);
           } catch (error) {
             failure += 1;
@@ -250,6 +326,7 @@ export class SyncAllPromotions {
           }
         }
 
+        const saveStartedAt = Date.now();
         if (failedPromotions.length > 0) {
           await this.persistFailedSyncPromotions(failedPromotions);
         }
@@ -258,9 +335,38 @@ export class SyncAllPromotions {
           await this.builder.saveAllPromotion.saveAll(consolidated);
           success += consolidated.length;
         }
+        const saveDurationMs = Date.now() - saveStartedAt;
 
-        console.log(
-          `Processed promotion ${promotionCatalog.promotionId} page, success: ${success}, failure: ${failure}`,
+        const pageDurationMs = Date.now() - pageStartedAt;
+        const meliDetailCallCount =
+          itemDetailStats.meliFallbackItemCount > 0
+            ? Math.ceil(itemDetailStats.meliFallbackItemCount / SyncAllPromotions.ITEM_DETAIL_BULK_LIMIT)
+            : 0;
+        // 1 eligible-items page fetch (always Mercado Libre) + any item-detail bulk calls that
+        // fell back to Mercado Libre because Catalog-Meli was disabled/failed/missing the item.
+        const meliApiCallCount = 1 + meliDetailCallCount;
+        const priceApiCallCount = priceMetricsStats.bulkCallCount + priceMetricsStats.individualFallbackCount;
+        Logger.info(
+          JSON.stringify({
+            message: 'Promotion sync page processed',
+            process: processName,
+            sourceProcess: input.sourceProcess,
+            promotionId: promotionCatalog.promotionId,
+            promotionType: promotionCatalog.type,
+            pageItemCount: eligibleItems.length,
+            pageDurationMs,
+            eligibleItemsFetchDurationMs,
+            itemDetailFetchDurationMs,
+            priceMetricsResolveDurationMs,
+            saveDurationMs,
+            meliApiCallCount,
+            catalogMeliResolvedCount: itemDetailStats.catalogResolvedCount,
+            itemDetailMeliFallbackCount: itemDetailStats.meliFallbackItemCount,
+            catalogMeliFailed: itemDetailStats.catalogFailed,
+            priceApiCallCount,
+            success,
+            failure,
+          }),
         );
 
         if (!nextSearchAfter || nextSearchAfter === currentSearchAfter) {
@@ -279,22 +385,23 @@ export class SyncAllPromotions {
           break;
         }
 
-        searchAfter = nextSearchAfter;
-      } while (searchAfter);
+        currentSearchAfter = nextSearchAfter;
+      }
+    } catch (error) {
+      failure += 1;
+      Logger.error(
+        JSON.stringify({
+          message: 'Promotion sync failed for promotion catalog',
+          process: processName,
+          sourceProcess: input.sourceProcess,
+          promotionId: promotionCatalog.promotionId,
+          promotionType: promotionCatalog.type,
+          reason: error instanceof Error ? error.message : 'Unknown sync error',
+        }),
+      );
     }
 
-    return {
-      process: processName,
-      total: success + failure + skipped,
-      success,
-      failure,
-      skipped,
-    };
-  }
-
-  private async buildPromotion(command: PromotionBuilderInput): Promise<Promotion> {
-    const promotionBuilder = this.promotionModelsRegistry.resolve(command.promotionCatalog.type);
-    return promotionBuilder.build(command);
+    return { success, failure, skipped };
   }
 
   private buildFailedSyncPromotion(params: {
@@ -349,23 +456,6 @@ export class SyncAllPromotions {
     }
 
     await this.builder.saveAllPromotion.saveAll(promotions);
-  }
-
-  private resolveMetricsSalePrice(
-    promotionType: PromotionType,
-    eligibleItem: EligibleItem,
-    itemDetail: ItemDetail,
-  ): number {
-    if (promotionType === PromotionType.DEAL) {
-      return (
-        eligibleItem.maxPrice ??
-        eligibleItem.suggestedPrice ??
-        itemDetail.price ??
-        0
-      );
-    }
-
-    return eligibleItem.suggestedPrice ?? itemDetail.price ?? 0;
   }
 
   private async resolveExistingMlas(params: {
@@ -464,6 +554,20 @@ export class SyncAllPromotions {
     };
   }
 
+  private startEligibleItemsPageFetch(
+    promotionCatalog: PromotionCatalog,
+    searchAfter: string | undefined,
+  ): Promise<MeliPaginatedResponse<EligibleItem>> {
+    const pagePromise = this.builder.mercadolibreApiRepository.getElegibleItemsPaginated(
+      promotionCatalog.promotionId,
+      promotionCatalog.type,
+      searchAfter,
+    );
+    void pagePromise.catch(() => undefined);
+
+    return pagePromise;
+  }
+
   private chunkArray<T>(items: T[], size: number): T[][] {
     const chunks: T[][] = [];
 
@@ -472,53 +576,6 @@ export class SyncAllPromotions {
     }
 
     return chunks;
-  }
-
-  private async mapWithConcurrency<TItem, TResult>(
-    items: TItem[],
-    concurrency: number,
-    mapper: (item: TItem) => Promise<TResult>,
-  ): Promise<
-    Array<
-      | { status: 'fulfilled'; item: TResult }
-      | { status: 'rejected'; item: TItem; error: Error }
-    >
-  > {
-    const results: Array<
-      | { status: 'fulfilled'; item: TResult }
-      | { status: 'rejected'; item: TItem; error: Error }
-    > = new Array(items.length);
-    let currentIndex = 0;
-
-    const worker = async (): Promise<void> => {
-      while (currentIndex < items.length) {
-        const index = currentIndex;
-        currentIndex += 1;
-        const item = items[index];
-
-        try {
-          results[index] = {
-            status: 'fulfilled',
-            item: await mapper(item),
-          };
-        } catch (error) {
-          results[index] = {
-            status: 'rejected',
-            item,
-            error: error instanceof Error ? error : new Error('Unknown async mapping error'),
-          };
-        }
-      }
-    };
-
-    const workers = Array.from(
-      { length: Math.min(concurrency, items.length) },
-      () => worker(),
-    );
-
-    await Promise.all(workers);
-
-    return results;
   }
 
   private hasFutureStartDate(promotionCatalog: PromotionCatalog): boolean {

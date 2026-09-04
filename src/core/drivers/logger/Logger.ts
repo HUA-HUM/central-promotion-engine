@@ -20,6 +20,7 @@ const formatErrorLog = (
   request: unknown,
   path: string,
   services: string,
+  durationMs?: number,
 ): Record<string, unknown> => {
   const log: Record<string, unknown> = {
     message: error?.message || 'Unknown error',
@@ -28,6 +29,7 @@ const formatErrorLog = (
     request,
     status: 'UNKNOWN',
     data: null,
+    durationMs: durationMs ?? null,
   };
 
   if (error?.response) {
@@ -53,6 +55,7 @@ export const loggerInfo = ({
     services?: string;
     status?: number | string;
     response?: unknown;
+    durationMs?: number;
   };
 }) => {
   Logger.info(
@@ -65,12 +68,19 @@ export const loggerInfo = ({
       services: config?.services ?? null,
       status: config?.status ?? null,
       response: config?.response ?? null,
+      durationMs: config?.durationMs ?? null,
     }),
   );
 };
 
-export const loggerError = (error: any, request: unknown, path: string, services: string) => {
-  const log = formatErrorLog(error, request, path, services);
+export const loggerError = (
+  error: any,
+  request: unknown,
+  path: string,
+  services: string,
+  durationMs?: number,
+) => {
+  const log = formatErrorLog(error, request, path, services, durationMs);
   Logger.error(JSON.stringify(log));
 };
 

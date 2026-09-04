@@ -89,6 +89,63 @@ export class PromotionMetadata {
   statusReason?: string;
 }
 
+export type PriceControlStatus =
+  | 'PRICE_UPDATED_PENDING_SYNC'
+  | 'ACTIVE'
+  | 'RELEASED'
+  | 'SKIPPED'
+  /** Base price bumped, ML applied it, DEAL is now profitable — nothing more to do. */
+  | 'SETTLED'
+  /** Gave up: ML never applied the bump, or it stayed unprofitable after repeated bumps. */
+  | 'EXHAUSTED';
+
+@Schema({ _id: false })
+export class PromotionPriceControl {
+  @Prop({ required: true })
+  controlledBy!: 'DEAL';
+
+  @Prop({
+    required: true,
+    enum: ['PRICE_UPDATED_PENDING_SYNC', 'ACTIVE', 'RELEASED', 'SKIPPED', 'SETTLED', 'EXHAUSTED'],
+  })
+  status!: PriceControlStatus;
+
+  @Prop()
+  updaterDisabled?: boolean;
+
+  @Prop()
+  disabledAt?: Date;
+
+  @Prop()
+  releasedAt?: Date;
+
+  @Prop()
+  basePriceBeforeControl?: number;
+
+  @Prop()
+  currentBasePrice?: number;
+
+  @Prop()
+  lastCalculatedDiscountedPrice?: number;
+
+  @Prop()
+  lastPriceUpdateAt?: Date;
+
+  /** max_discounted_price observed before the first DEAL price bump — anchor for measuring ML recompose. */
+  @Prop()
+  originalMaxDiscountedPrice?: number;
+
+  /** How many times this DEAL has pushed a new base price to Mercado Libre. */
+  @Prop()
+  bumpCount?: number;
+
+  @Prop()
+  firstBumpAt?: Date;
+
+  @Prop()
+  reason?: string;
+}
+
 @Schema({ collection: 'promotions', timestamps: true })
 export class Promotion {
   @Prop({ required: true })
@@ -141,6 +198,9 @@ export class Promotion {
 
   @Prop({ type: Terms, default: {} })
   terms?: Terms;
+
+  @Prop({ type: PromotionPriceControl })
+  priceControl?: PromotionPriceControl;
 }
 
 export const PromotionSchema = SchemaFactory.createForClass(Promotion);

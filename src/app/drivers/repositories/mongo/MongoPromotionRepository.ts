@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { FilterQuery, Model, Types } from 'mongoose';
+import { AppConfigService } from '@app/drivers/config/AppConfigService';
+import { Logger } from '@core/drivers/logger/Logger';
 import { Promotion, PromotionStatus } from '@core/entities/Promotion';
 import {
   PaginatedPromotionCatalogsResult,
@@ -15,21 +17,68 @@ import { PromotionCatalog, PromotionType } from '@core/entities/PromotionCatalog
 
 @Injectable()
 export class MongoPromotionRepository implements PromotionRepository {
+  private readonly metricsLoggingEnabled: boolean;
+
   constructor(
     @InjectModel(Promotion.name)
     private readonly promotionModel: Model<Promotion>,
     @InjectModel(PromotionCatalog.name)
     private readonly promotionCatalogModel: Model<PromotionCatalog>,
-  ) {}
+    configService: AppConfigService,
+  ) {
+    this.metricsLoggingEnabled = configService.get().metricsLoggingEnabled;
+  }
+
+  private async measure<T>(
+    operation: string,
+    fn: () => Promise<T>,
+    metadata: Record<string, unknown> = {},
+  ): Promise<T> {
+    const startedAt = Date.now();
+
+    try {
+      const result = await fn();
+      if (this.metricsLoggingEnabled) {
+        Logger.info(
+          JSON.stringify({
+            message: 'Mongo operation succeeded',
+            service: 'MONGO',
+            operation,
+            durationMs: Date.now() - startedAt,
+            resultCount: Array.isArray(result) ? result.length : undefined,
+            ...metadata,
+          }),
+        );
+      }
+      return result;
+    } catch (error) {
+      Logger.error(
+        JSON.stringify({
+          message: 'Mongo operation failed',
+          service: 'MONGO',
+          operation,
+          durationMs: Date.now() - startedAt,
+          reason: error instanceof Error ? error.message : 'Unknown mongo error',
+          ...metadata,
+        }),
+      );
+      throw error;
+    }
+  }
 
   async saveAll(promotions: Promotion[]): Promise<void> {
     if (promotions.length === 0) {
       return;
     }
 
-    await this.promotionModel.bulkWrite(
-      promotions.map((promotion) => this.buildPromotionUpsertOperation(promotion)),
-      { ordered: false },
+    await this.measure(
+      'saveAll',
+      () =>
+        this.promotionModel.bulkWrite(
+          promotions.map((promotion) => this.buildPromotionUpsertOperation(promotion)),
+          { ordered: false },
+        ),
+      { itemCount: promotions.length },
     );
   }
 
@@ -85,15 +134,20 @@ export class MongoPromotionRepository implements PromotionRepository {
       return;
     }
 
-    await this.promotionCatalogModel.bulkWrite(
-      catalogs.map((catalog) => ({
-        updateOne: {
-          filter: { promotionId: catalog.promotionId },
-          update: { $set: catalog },
-          upsert: true,
-        },
-      })),
-      { ordered: false },
+    await this.measure(
+      'saveCatalogs',
+      () =>
+        this.promotionCatalogModel.bulkWrite(
+          catalogs.map((catalog) => ({
+            updateOne: {
+              filter: { promotionId: catalog.promotionId },
+              update: { $set: catalog },
+              upsert: true,
+            },
+          })),
+          { ordered: false },
+        ),
+      { itemCount: catalogs.length },
     );
   }
 
@@ -119,12 +173,14 @@ export class MongoPromotionRepository implements PromotionRepository {
       query._id = { $gt: new Types.ObjectId(afterId) };
     }
 
-    return this.promotionModel
-      .find(query)
-      .sort({ _id: 1 })
-      .limit(limit)
-      .lean<Promotion[]>()
-      .exec();
+    return this.measure('findPendingActivationBatch', () =>
+      this.promotionModel
+        .find(query)
+        .sort({ _id: 1 })
+        .limit(limit)
+        .lean<Promotion[]>()
+        .exec(),
+    );
   }
 
   async findActive(): Promise<Promotion[]> {
@@ -145,12 +201,14 @@ export class MongoPromotionRepository implements PromotionRepository {
       query._id = { $gt: new Types.ObjectId(afterId) };
     }
 
-    return this.promotionModel
-      .find(query)
-      .sort({ _id: 1 })
-      .limit(limit)
-      .lean<Promotion[]>()
-      .exec();
+    return this.measure('findActiveBatch', () =>
+      this.promotionModel
+        .find(query)
+        .sort({ _id: 1 })
+        .limit(limit)
+        .lean<Promotion[]>()
+        .exec(),
+    );
   }
 
   async findFailedDeactivationBatch(afterId?: string, limit = 500): Promise<Promotion[]> {
@@ -162,21 +220,27 @@ export class MongoPromotionRepository implements PromotionRepository {
       query._id = { $gt: new Types.ObjectId(afterId) };
     }
 
-    return this.promotionModel
-      .find(query)
-      .sort({ _id: 1 })
-      .limit(limit)
-      .lean<Promotion[]>()
-      .exec();
+    return this.measure('findFailedDeactivationBatch', () =>
+      this.promotionModel
+        .find(query)
+        .sort({ _id: 1 })
+        .limit(limit)
+        .lean<Promotion[]>()
+        .exec(),
+    );
   }
 
-  async hasActivePromotionForItem(
-    itemId: string,
+  async findItemIdsWithActivePromotion(
+    itemIds: string[],
     type: PromotionType,
     excludingPromotionId?: string,
-  ): Promise<boolean> {
+  ): Promise<Set<string>> {
+    if (itemIds.length === 0) {
+      return new Set();
+    }
+
     const query: FilterQuery<Promotion> = {
-      itemId,
+      itemId: { $in: itemIds },
       type,
       status: PromotionStatus.ACTIVE,
     };
@@ -185,29 +249,89 @@ export class MongoPromotionRepository implements PromotionRepository {
       query.promotionId = { $ne: excludingPromotionId };
     }
 
-    const document = await this.promotionModel.exists(query).exec();
-    return document !== null;
+    const activePromotions = await this.measure(
+      'findItemIdsWithActivePromotion',
+      () =>
+        this.promotionModel
+          .find(query, { itemId: 1 })
+          .lean<Pick<Promotion, 'itemId'>[]>()
+          .exec(),
+      { itemCount: itemIds.length },
+    );
+
+    return new Set(activePromotions.map((promotion) => promotion.itemId));
+  }
+
+  async findByItemIds(promotionId: string, itemIds: string[]): Promise<Promotion[]> {
+    if (itemIds.length === 0) {
+      return [];
+    }
+
+    return this.measure(
+      'findByItemIds',
+      () =>
+        this.promotionModel
+          .find({ promotionId, itemId: { $in: itemIds } })
+          .lean<Promotion[]>()
+          .exec(),
+      { itemCount: itemIds.length },
+    );
+  }
+
+  async findByPromotionId(promotionId: string): Promise<Promotion[]> {
+    return this.promotionModel
+      .find({ promotionId })
+      .lean<Promotion[]>()
+      .exec();
+  }
+
+  /**
+   * Same rows as `findByPromotionId`, paginated by `_id` (same cursor style as
+   * `findPendingActivationBatch`/`findActiveBatch`). A DEAL promotion can have hundreds of
+   * thousands of synced items — `findByPromotionId` loading them all into one array is what
+   * blows up the process; callers that need to walk every item should page through this instead.
+   */
+  async findByPromotionIdBatch(promotionId: string, afterId?: string, limit = 500): Promise<Promotion[]> {
+    const query: FilterQuery<Promotion> = { promotionId };
+
+    if (afterId) {
+      query._id = { $gt: new Types.ObjectId(afterId) };
+    }
+
+    return this.measure('findByPromotionIdBatch', () =>
+      this.promotionModel
+        .find(query)
+        .sort({ _id: 1 })
+        .limit(limit)
+        .lean<Promotion[]>()
+        .exec(),
+    );
   }
 
   async update(promotion: Promotion): Promise<void> {
     const { auditTrail, ...promotionWithoutAuditTrail } = promotion;
     const latestAudit = auditTrail?.[auditTrail.length - 1];
 
-    await this.promotionModel.updateOne(
-      {
-        promotionId: promotion.promotionId,
-        itemId: promotion.itemId,
-      },
-      {
-        $set: promotionWithoutAuditTrail,
-        ...(latestAudit
-          ? {
-              $push: {
-                auditTrail: latestAudit,
-              },
-            }
-          : {}),
-      },
+    await this.measure(
+      'update',
+      () =>
+        this.promotionModel.updateOne(
+          {
+            promotionId: promotion.promotionId,
+            itemId: promotion.itemId,
+          },
+          {
+            $set: promotionWithoutAuditTrail,
+            ...(latestAudit
+              ? {
+                  $push: {
+                    auditTrail: latestAudit,
+                  },
+                }
+              : {}),
+          },
+        ),
+      { promotionId: promotion.promotionId, itemId: promotion.itemId },
     );
   }
 

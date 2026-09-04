@@ -11,6 +11,7 @@ export interface APICampaignMlaApiRepositoryConfig {
   baseUrl: string;
   timeout: number;
   apiToken?: string;
+  metricsLoggingEnabled: boolean;
 }
 
 export class APICampaignMlaApiRepository
@@ -23,6 +24,7 @@ export class APICampaignMlaApiRepository
       baseUrl: repositoryConfig.baseUrl,
       timeout: repositoryConfig.timeout,
       service: 'campaign-mla-api',
+      metricsLoggingEnabled: repositoryConfig.metricsLoggingEnabled,
     });
   }
 

@@ -13,6 +13,7 @@ export class NestPriceApiRepository extends APIPriceApiRepository {
       baseUrl: config.priceApiBaseUrl,
       timeout: config.priceApiTimeout,
       apiToken: config.priceApiToken,
+      metricsLoggingEnabled: config.metricsLoggingEnabled,
     });
   }
 }

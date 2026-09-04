@@ -9,6 +9,8 @@ import {
   IAPIMercadolibreApiRepository,
   PauseOrDeletePromotionCommand,
   PromotionCatalog,
+  UpdatePriceCommand,
+  UpdatePriceResponse,
 } from '@core/adapters/repositories/mercadolibre/IAPIMercadolibreApiRepository';
 import { PromotionType } from '@core/entities/PromotionCatalog';
 import { Logger } from '@core/drivers/logger/Logger';
@@ -21,6 +23,18 @@ export interface APIMercadolibreApiRepositoryConfig {
   timeout: number;
   apiToken?: string;
   syncPromotionTypes: string[];
+  AppKey: string;
+  metricsLoggingEnabled: boolean;
+}
+
+interface MeliUpdatePriceRawResponse {
+  id: string;
+  appKey: string;
+  previousPrice: number;
+  price: number;
+  currency: string;
+  status: string;
+  lastUpdated: string;
 }
 
 export class APIMercadolibreApiRepository
@@ -30,6 +44,7 @@ export class APIMercadolibreApiRepository
   private static readonly ELIGIBLE_ITEMS_PAGE_LIMIT = '50';
   private static readonly ELIGIBLE_ITEMS_RETRY_ATTEMPTS = 3;
   private static readonly ELIGIBLE_ITEMS_RETRY_BASE_DELAY_MS = 500;
+  private static readonly ITEM_DETAIL_BULK_CHUNK_SIZE = 20;
 
   constructor(private readonly repositoryConfig: APIMercadolibreApiRepositoryConfig) {
     super({
@@ -37,6 +52,7 @@ export class APIMercadolibreApiRepository
       baseUrl: repositoryConfig.baseUrl,
       timeout: repositoryConfig.timeout,
       service: 'mercadolibre-api',
+      metricsLoggingEnabled: repositoryConfig.metricsLoggingEnabled,
     });
   }
 
@@ -60,7 +76,12 @@ export class APIMercadolibreApiRepository
 
     const promotionResults = await Promise.all(
       filteredResults.map(async (promotion) => {
-        const itemsPaginated = await this.getElegibleItemsPaginated(promotion.id, promotion.type);
+        const itemsPaginated = await this.getElegibleItemsPaginated(
+          promotion.id,
+          promotion.type,
+          undefined,
+          1,
+        );
 
         return {
           promotionId: promotion.id,
@@ -97,10 +118,11 @@ export class APIMercadolibreApiRepository
     promotionId: string,
     promotionType: string,
     searchAfter?: string,
+    limit?: number,
   ): Promise<MeliPaginatedResponse<EligibleItem>> {
     const params = new URLSearchParams({
       promotion_type: promotionType,
-      limit: APIMercadolibreApiRepository.ELIGIBLE_ITEMS_PAGE_LIMIT,
+      limit: limit ? String(limit) : APIMercadolibreApiRepository.ELIGIBLE_ITEMS_PAGE_LIMIT,
     });
 
     if (searchAfter) {
@@ -201,6 +223,62 @@ export class APIMercadolibreApiRepository
     };
   }
 
+  async getItemDetailsBulk(itemIds: string[]): Promise<ItemDetail[]> {
+    if (itemIds.length === 0) {
+      return [];
+    }
+
+    const chunks = this.chunkArray(
+      itemIds,
+      APIMercadolibreApiRepository.ITEM_DETAIL_BULK_CHUNK_SIZE,
+    );
+    const chunkResults = await Promise.all(
+      chunks.map((chunk) => this.getItemDetailsBulkChunk(chunk)),
+    );
+
+    return chunkResults.flat();
+  }
+
+  private async getItemDetailsBulkChunk(itemIds: string[]): Promise<ItemDetail[]> {
+    const params = new URLSearchParams({ ids: itemIds.join(',') });
+
+    try {
+      const response = await this.get<MeliItemDetail[]>(
+        `/meli/products/bulk?${params.toString()}`,
+        { headers: this.headers() },
+      );
+
+      return this.normalizeResults(response).map((detail) => ({
+        itemId: detail.id,
+        sku: detail.sellerSku,
+        categoryId: detail.categoryId,
+        listingTypeId: detail.listingTypeId,
+        price: detail.price,
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown mercadolibre error';
+      Logger.warn(
+        JSON.stringify({
+          message: 'Failed to fetch item detail bulk chunk from Mercado Libre',
+          service: 'mercadolibre-api',
+          itemIds,
+          reason: message,
+        }),
+      );
+      return [];
+    }
+  }
+
+  private chunkArray<T>(items: T[], size: number): T[][] {
+    const chunks: T[][] = [];
+
+    for (let index = 0; index < items.length; index += size) {
+      chunks.push(items.slice(index, index + size));
+    }
+
+    return chunks;
+  }
+
   async activatePromotion(
     command: ActivatePromotionCommand,
   ): Promise<{ offerId?: string; status: string }> {
@@ -249,6 +327,27 @@ export class APIMercadolibreApiRepository
       headers: this.headers(),
       params,
     });
+  }
+
+  async updatePrice(command: UpdatePriceCommand): Promise<UpdatePriceResponse> {
+    const appKey = command.appKey ?? this.repositoryConfig.AppKey;
+    const params = new URLSearchParams({ appKey });
+
+    const response = await this.patch<MeliUpdatePriceRawResponse>(
+      `/meli/products/${command.itemId}/price?${params.toString()}`,
+      { price: command.price },
+      { headers: this.headers() },
+    );
+
+    return {
+      id: response.id,
+      appKey: response.appKey,
+      previousPrice: response.previousPrice,
+      price: response.price,
+      currency: response.currency,
+      status: response.status,
+      lastUpdated: new Date(response.lastUpdated),
+    };
   }
 
   private headers(): Record<string, string> {

@@ -1,7 +1,13 @@
 import { HttpModule } from '@nestjs/axios';
 import { Module } from '@nestjs/common';
+import { AutomeliController } from '@app/controller/automeli/AutomeliController';
 import { PromotionsController } from '@app/controller/promotions/PromotionsController';
 import { AppConfigService } from '@app/drivers/config/AppConfigService';
+import {
+  NestAutomeliUpdateRepository,
+  NestAutomeliEnableUpdateRepository,
+} from '@app/drivers/repositories/automeli/NestAutomeliUpdateRepository';
+import { NestCatalogMeliApiRepository } from '@app/drivers/repositories/catalog-meli/NestCatalogMeliApiRepository';
 import { NestCampaignMlaApiRepository } from '@app/drivers/repositories/madre-api/NestCampaignMlaApiRepository';
 import { NestMercadolibreApiRepository } from '@app/drivers/repositories/mercadolibre/NestMercadolibreApiRepository';
 import { NestPriceApiRepository } from '@app/drivers/repositories/price-api/NestPriceApiRepository';
@@ -9,21 +15,28 @@ import { MongoPromotionRepository } from '@app/drivers/repositories/mongo/MongoP
 import { MongoModule } from '@app/module/Mongo.module';
 import { PromotionAutomationService } from '@app/service/PromotionAutomation.service';
 import { ActivatePromotions } from '@core/interactors/promotion/ActivatePromotions';
+import { ActivateDealPromotion } from '@core/interactors/promotion/ActivateDealPromotion';
+import { AutomeliMlaControl } from '@core/interactors/promotion/AutomeliMlaControl';
 import { DeactivatePromotions } from '@core/interactors/promotion/DeactivatePromotions';
+import { DeactivateDealPromotion } from '@core/interactors/promotion/DeactivateDealPromotion';
 import { GetPromotionCatalogs } from '@core/interactors/promotion/GetPromotionCatalogs';
 import { GetPromotions } from '@core/interactors/promotion/GetPromotions';
 import { GetPromotionStats } from '@core/interactors/promotion/GetPromotionStats';
 import { SaveAllPromotion } from '@core/interactors/promotion/SaveAllPromotion';
+import { DealPriceControlService } from '@core/interactors/promotion/services/DealPriceControlService';
 import { SyncAllPromotions } from '@core/interactors/promotion/SyncAllPromotions';
 import { SyncOnePromotion } from '@core/interactors/promotion/SyncOnePromotion';
 
 @Module({
   imports: [HttpModule, MongoModule],
-  controllers: [PromotionsController],
+  controllers: [PromotionsController, AutomeliController],
   providers: [
     AppConfigService,
     MongoPromotionRepository,
+    NestAutomeliUpdateRepository,
+    NestAutomeliEnableUpdateRepository,
     NestCampaignMlaApiRepository,
+    NestCatalogMeliApiRepository,
     NestMercadolibreApiRepository,
     NestPriceApiRepository,
     PromotionAutomationService,
@@ -60,6 +73,27 @@ import { SyncOnePromotion } from '@core/interactors/promotion/SyncOnePromotion';
       inject: [MongoPromotionRepository],
     },
     {
+      provide: 'DealPriceControlService',
+      useFactory: async (
+        automeliUpdateRepository: NestAutomeliUpdateRepository,
+        automeliEnableUpdateRepository: NestAutomeliEnableUpdateRepository,
+        mercadolibreApiRepository: NestMercadolibreApiRepository,
+        configService: AppConfigService,
+      ) =>
+        new DealPriceControlService({
+          automeliUpdateRepository,
+          automeliEnableUpdateRepository,
+          mercadolibreApiRepository,
+          config: configService.get(),
+        }),
+      inject: [
+        NestAutomeliUpdateRepository,
+        NestAutomeliEnableUpdateRepository,
+        NestMercadolibreApiRepository,
+        AppConfigService,
+      ],
+    },
+    {
       provide: 'SyncAllPromotions',
       useFactory: async (
         campaignMlaApiRepository: NestCampaignMlaApiRepository,
@@ -67,6 +101,9 @@ import { SyncOnePromotion } from '@core/interactors/promotion/SyncOnePromotion';
         priceApiRepository: NestPriceApiRepository,
         saveAllPromotion: SaveAllPromotion,
         configService: AppConfigService,
+        dealPriceControlService: DealPriceControlService,
+        promotionRepository: MongoPromotionRepository,
+        catalogMeliApiRepository: NestCatalogMeliApiRepository,
       ) =>
         new SyncAllPromotions({
           campaignMlaApiRepository,
@@ -74,6 +111,9 @@ import { SyncOnePromotion } from '@core/interactors/promotion/SyncOnePromotion';
           priceApiRepository,
           saveAllPromotion,
           config: configService.get(),
+          dealPriceControlService,
+          promotionRepository,
+          catalogMeliApiRepository,
         }),
       inject: [
         NestCampaignMlaApiRepository,
@@ -81,6 +121,9 @@ import { SyncOnePromotion } from '@core/interactors/promotion/SyncOnePromotion';
         NestPriceApiRepository,
         'SaveAllPromotion',
         AppConfigService,
+        'DealPriceControlService',
+        MongoPromotionRepository,
+        NestCatalogMeliApiRepository,
       ],
     },
     {
@@ -120,27 +163,85 @@ import { SyncOnePromotion } from '@core/interactors/promotion/SyncOnePromotion';
       ],
     },
     {
+      provide: 'ActivateDealPromotion',
+      useFactory: async (
+        promotionRepository: MongoPromotionRepository,
+        mercadolibreApiRepository: NestMercadolibreApiRepository,
+        priceApiRepository: NestPriceApiRepository,
+        automeliMlaControl: AutomeliMlaControl,
+        configService: AppConfigService,
+      ) =>
+        new ActivateDealPromotion({
+          promotionRepository,
+          mercadolibreApiRepository,
+          priceApiRepository,
+          automeliMlaControl,
+          config: configService.get(),
+        }),
+      inject: [
+        MongoPromotionRepository,
+        NestMercadolibreApiRepository,
+        NestPriceApiRepository,
+        'AutomeliMlaControl',
+        AppConfigService,
+      ],
+    },
+    {
+      provide: 'DeactivateDealPromotion',
+      useFactory: async (
+        promotionRepository: MongoPromotionRepository,
+        mercadolibreApiRepository: NestMercadolibreApiRepository,
+        dealPriceControlService: DealPriceControlService,
+      ) =>
+        new DeactivateDealPromotion({
+          promotionRepository,
+          mercadolibreApiRepository,
+          dealPriceControlService,
+        }),
+      inject: [MongoPromotionRepository, NestMercadolibreApiRepository, 'DealPriceControlService'],
+    },
+    {
+      provide: 'AutomeliMlaControl',
+      useFactory: async (
+        automeliUpdateRepository: NestAutomeliUpdateRepository,
+        automeliEnableUpdateRepository: NestAutomeliEnableUpdateRepository,
+        configService: AppConfigService,
+      ) =>
+        new AutomeliMlaControl({
+          automeliUpdateRepository,
+          automeliEnableUpdateRepository,
+          config: configService.get(),
+        }),
+      inject: [NestAutomeliUpdateRepository, NestAutomeliEnableUpdateRepository, AppConfigService],
+    },
+    {
       provide: 'DeactivatePromotions',
       useFactory: async (
         promotionRepository: MongoPromotionRepository,
         campaignMlaApiRepository: NestCampaignMlaApiRepository,
         mercadolibreApiRepository: NestMercadolibreApiRepository,
         priceApiRepository: NestPriceApiRepository,
+        dealPriceControlService: DealPriceControlService,
         configService: AppConfigService,
+        catalogMeliApiRepository: NestCatalogMeliApiRepository,
       ) =>
         new DeactivatePromotions({
           promotionRepository,
           campaignMlaApiRepository,
           mercadolibreApiRepository,
           priceApiRepository,
+          dealPriceControlService,
           config: configService.get(),
+          catalogMeliApiRepository,
         }),
       inject: [
         MongoPromotionRepository,
         NestCampaignMlaApiRepository,
         NestMercadolibreApiRepository,
         NestPriceApiRepository,
+        'DealPriceControlService',
         AppConfigService,
+        NestCatalogMeliApiRepository,
       ],
     },
   ],

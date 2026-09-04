@@ -9,13 +9,27 @@ export interface AppConfig {
   mercadolibreApiBaseUrl: string;
   mercadolibreApiTimeout: number;
   mercadolibreApiToken?: string;
+  mercadolibreAppKey: string;
   priceApiBaseUrl: string;
   priceApiTimeout: number;
   priceApiToken?: string;
+  catalogMeliApiBaseUrl: string;
+  catalogMeliApiTimeout: number;
+  catalogMeliApiToken?: string;
+  catalogMeliApiEnabled: boolean;
   syncCron: string;
   activateCron: string;
   deactivateCron: string;
+  enabledCronProcesses: string[];
   defaultMinProfitability: number;
   defaultMinProfit: number;
   syncPromotion: string;
+  syncPromotionConcurrency: number;
+  automeliApiBaseUrl: string;
+  automeliApiTimeout: number;
+  automeliApiToken?: string;
+  automeliSellerId: number;
+  dealPriceControlEnabled: boolean;
+  dealPriceControlMaxBaseIncreasePercentage: number;
+  metricsLoggingEnabled: boolean;
 }

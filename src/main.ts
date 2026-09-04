@@ -18,7 +18,7 @@ async function bootstrap() {
   const config = new DocumentBuilder()
     .setTitle('Central Promos Engine')
     .setDescription('NestJS microservice to orchestrate Mercado Libre promotions')
-    .setVersion('0.0.1')
+    .setVersion('0.0.3')
     .addApiKey(
       {
         type: 'apiKey',
