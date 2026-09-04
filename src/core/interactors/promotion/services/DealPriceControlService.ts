@@ -55,6 +55,13 @@ export class DealPriceControlService {
    */
   private static readonly MAX_CONSECUTIVE_BUMPS = 3;
 
+  /**
+   * Per-item INFO logging (`skipped`, `re-evaluation`, `updated base price`, Automeli notes) was
+   * added to diagnose ML's recompose behaviour. Off in prod — `Logger.warn`/`error` still fire.
+   * Flip to `true` to bring the diagnostics back.
+   */
+  private static readonly VERBOSE_LOGS: boolean = false;
+
   constructor(private readonly builder: DealPriceControlBuilder) {
     if (!builder.config.dealPriceControlEnabled) {
       Logger.info(
@@ -99,7 +106,9 @@ export class DealPriceControlService {
 
     // Instrumentation: for items we already bumped and are waiting on, emit one line per sync
     // with expected-vs-actual so we can see whether/how fast ML recomposes max_discounted_price.
-    this.logPendingSyncReEvaluation(input, referenceBasePrice, currentDealPrice, discountRatio);
+    if (DealPriceControlService.VERBOSE_LOGS) {
+      this.logPendingSyncReEvaluation(input, referenceBasePrice, currentDealPrice, discountRatio);
+    }
 
     const cost = input.metrics.cost;
     if (cost === undefined || !Number.isFinite(cost) || cost <= 0) {
@@ -119,24 +128,26 @@ export class DealPriceControlService {
       }
     }
 
-    // No pending record but the item's live price is already above what ML's promotion catalog
-    // reports as its original price → a price change is still propagating (DB was reset, or the
-    // price moved outside this service). currentDealPrice / metrics / discountRatio are all
-    // derived from that stale original, so acting now would target a wrong — sometimes lower —
-    // price. Wait it out. (Pending items are already handled by reconcilePendingSync above.)
-    if (input.originalPrice !== undefined && input.itemPrice > input.originalPrice * 1.005) {
-      return this.skipped(
-        input,
-        `Item price ${input.itemPrice} is ahead of Mercado Libre catalog original ${input.originalPrice}; waiting for ML to reconcile`,
-      );
-    }
-
     if (this.isProfitable(input.metrics, currentDealPrice)) {
       // The overwhelming majority of DEAL items land here on every sync; logging one line
-      // each would drown the process, so this "no-op" skip is intentionally silent.
+      // each would drown the process, so this "no-op" skip is intentionally silent. Checked
+      // before the staleness guard below: a profitable item needs nothing regardless, and a
+      // stale deal price that still clears cost only gets *more* profitable once ML reconciles.
       return this.resolveSkippedPriceControl(
         input,
         'DEAL is already profitable at max_discounted_price, no price control needed',
+      );
+    }
+
+    // Not profitable, and no pending record — but the item's live price is already above what
+    // ML's promotion catalog reports as its original price. A price change may still be
+    // propagating (DB reset / price moved outside this service), so currentDealPrice, the
+    // metrics and discountRatio could all be stale. Don't act on ambiguous data.
+    // (Pending items are handled by reconcilePendingSync above.)
+    if (input.originalPrice !== undefined && input.itemPrice > input.originalPrice * 1.005) {
+      return this.skipped(
+        input,
+        `Item price ${input.itemPrice} is ahead of Mercado Libre catalog original ${input.originalPrice}; not acting on possibly stale data`,
       );
     }
 
@@ -207,13 +218,15 @@ export class DealPriceControlService {
     let automeliMatched: number | undefined;
 
     if (alreadyExcludedByThisDeal) {
-      Logger.info(
-        JSON.stringify({
-          message: 'Skipping Automeli exclude call because the item is already meli_excluded by this DEAL',
-          process: 'deal-price-control',
-          itemId: input.itemId,
-        }),
-      );
+      if (DealPriceControlService.VERBOSE_LOGS) {
+        Logger.info(
+          JSON.stringify({
+            message: 'Skipping Automeli exclude call because the item is already meli_excluded by this DEAL',
+            process: 'deal-price-control',
+            itemId: input.itemId,
+          }),
+        );
+      }
     } else {
       const automeliResponse = await this.builder.automeliUpdateRepository.update({
         sellerId: this.builder.config.automeliSellerId,
@@ -256,29 +269,34 @@ export class DealPriceControlService {
     const bumpCount = (existing?.bumpCount ?? 0) + 1;
     const firstBumpAt = existing?.firstBumpAt ?? now;
 
+    // Kept on in prod: this is the audit record of an actual price change pushed to Mercado Libre.
     Logger.info(
       JSON.stringify({
         message: 'DEAL price control updated base price',
         process: 'deal-price-control',
         itemId: input.itemId,
         promotionId: input.promotionId ?? null,
-        targetDealPrice,
-        targetBasePrice,
         previousBasePrice: existing?.currentBasePrice ?? input.itemPrice,
-        discountRatio,
-        maxBasePrice,
+        targetBasePrice,
+        targetDealPrice,
         bumpCount,
-        cumulativeBaseIncreasePct: DealPriceControlService.pctChange(
-          targetBasePrice,
-          basePriceBeforeControl,
-        ),
-        originalMaxDiscountedPrice,
-        costAtCurrentDealPrice: cost,
-        targetMinProfitabilityPercent:
-          this.builder.config.defaultMinProfitability +
-          DealPriceControlService.TARGET_MIN_PROFITABILITY_BUFFER_PERCENT,
-        targetBaseIncreasePct: DealPriceControlService.pctChange(targetBasePrice, referenceBasePrice),
-        automeliMatched,
+        ...(DealPriceControlService.VERBOSE_LOGS
+          ? {
+              discountRatio,
+              maxBasePrice,
+              cumulativeBaseIncreasePct: DealPriceControlService.pctChange(
+                targetBasePrice,
+                basePriceBeforeControl,
+              ),
+              originalMaxDiscountedPrice,
+              costAtCurrentDealPrice: cost,
+              targetMinProfitabilityPercent:
+                this.builder.config.defaultMinProfitability +
+                DealPriceControlService.TARGET_MIN_PROFITABILITY_BUFFER_PERCENT,
+              targetBaseIncreasePct: DealPriceControlService.pctChange(targetBasePrice, referenceBasePrice),
+              automeliMatched,
+            }
+          : {}),
         status: 'PRICE_UPDATED_PENDING_SYNC',
       }),
     );
@@ -590,17 +608,19 @@ export class DealPriceControlService {
   ): PromotionPriceControl {
     const priceControl = this.resolveSkippedPriceControl(input, reason);
 
-    Logger.info(
-      JSON.stringify({
-        message: 'DEAL price control skipped',
-        process: 'deal-price-control',
-        itemId: input.itemId,
-        status: priceControl.status,
-        updaterDisabled: priceControl.updaterDisabled ?? false,
-        reason,
-        ...extra,
-      }),
-    );
+    if (DealPriceControlService.VERBOSE_LOGS) {
+      Logger.info(
+        JSON.stringify({
+          message: 'DEAL price control skipped',
+          process: 'deal-price-control',
+          itemId: input.itemId,
+          status: priceControl.status,
+          updaterDisabled: priceControl.updaterDisabled ?? false,
+          reason,
+          ...extra,
+        }),
+      );
+    }
 
     return priceControl;
   }
