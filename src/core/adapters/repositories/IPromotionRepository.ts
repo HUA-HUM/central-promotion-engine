@@ -69,6 +69,7 @@ export interface PromotionRepository {
   ): Promise<Set<string>>;
   findByItemIds(promotionId: string, itemIds: string[]): Promise<Promotion[]>;
   findByPromotionId(promotionId: string): Promise<Promotion[]>;
+  findByPromotionIdBatch(promotionId: string, afterId?: string, limit?: number): Promise<Promotion[]>;
   update(promotion: Promotion): Promise<void>;
   findAll(filters: PromotionFilters): Promise<PaginatedPromotionsResult>;
   findCatalogs(filters: PromotionCatalogFilters): Promise<PaginatedPromotionCatalogsResult>;

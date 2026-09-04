@@ -285,6 +285,29 @@ export class MongoPromotionRepository implements PromotionRepository {
       .exec();
   }
 
+  /**
+   * Same rows as `findByPromotionId`, paginated by `_id` (same cursor style as
+   * `findPendingActivationBatch`/`findActiveBatch`). A DEAL promotion can have hundreds of
+   * thousands of synced items — `findByPromotionId` loading them all into one array is what
+   * blows up the process; callers that need to walk every item should page through this instead.
+   */
+  async findByPromotionIdBatch(promotionId: string, afterId?: string, limit = 500): Promise<Promotion[]> {
+    const query: FilterQuery<Promotion> = { promotionId };
+
+    if (afterId) {
+      query._id = { $gt: new Types.ObjectId(afterId) };
+    }
+
+    return this.measure('findByPromotionIdBatch', () =>
+      this.promotionModel
+        .find(query)
+        .sort({ _id: 1 })
+        .limit(limit)
+        .lean<Promotion[]>()
+        .exec(),
+    );
+  }
+
   async update(promotion: Promotion): Promise<void> {
     const { auditTrail, ...promotionWithoutAuditTrail } = promotion;
     const latestAudit = auditTrail?.[auditTrail.length - 1];

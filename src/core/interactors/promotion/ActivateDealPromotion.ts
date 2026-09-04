@@ -44,9 +44,23 @@ export interface ActivateDealPromotionBuilder {
   config: Pick<AppConfig, 'defaultMinProfit' | 'defaultMinProfitability'>;
 }
 
+interface ActivateDealPromotionCounters {
+  total: number;
+  success: number;
+  skipped: number;
+  failure: number;
+}
+
 export class ActivateDealPromotion {
   private static readonly SOURCE_PROCESS = 'manual-deal-activate';
   private static readonly CONCURRENCY = 5;
+  /**
+   * How many `Promotion` docs are held in memory at once. A DEAL can have hundreds of thousands
+   * of synced items; loading them all in one array (plus a same-sized array of results) is what
+   * OOM-kills the process. Batches are processed and discarded one at a time — only the running
+   * counters below survive across batches, so memory stays flat regardless of promotion size.
+   */
+  private static readonly DB_BATCH_SIZE = 500;
   /**
    * Only promotions in these statuses can be manually activated — same policy the automatic
    * `ActivatePromotions` flow applies (`findPendingActivationBatch`). Anything already ACTIVE,
@@ -62,74 +76,127 @@ export class ActivateDealPromotion {
   constructor(private readonly builder: ActivateDealPromotionBuilder) {}
 
   async execute(input: ActivateDealPromotionInput): Promise<ActivateDealPromotionResult> {
-    const promotions = await this.builder.promotionRepository.findByPromotionId(input.promotionId);
+    // Existence/type validation reads a single doc — every Promotion under a promotionId shares
+    // the same `type`, so this is enough to validate without paging through everything.
+    const [sample] = await this.builder.promotionRepository.findByPromotionIdBatch(
+      input.promotionId,
+      undefined,
+      1,
+    );
 
-    if (promotions.length === 0) {
+    if (!sample) {
       throw new Error(`Promotion ${input.promotionId} has no synced items`);
     }
 
-    if (promotions.some((promotion) => promotion.type !== PromotionType.DEAL)) {
+    if (sample.type !== PromotionType.DEAL) {
       throw new Error(`Promotion ${input.promotionId} is not a DEAL promotion`);
     }
 
-    const { targets, notFoundItemIds } = this.resolveTargets(promotions, input.mlas);
+    const counters: ActivateDealPromotionCounters = { total: 0, success: 0, skipped: 0, failure: 0 };
 
-    const notFoundResults: ActivateDealPromotionItemResult[] = notFoundItemIds.map((itemId) => ({
-      itemId,
-      status: 'skipped',
-      reason: `Item ${itemId} was not found among the synced items for promotion ${input.promotionId}`,
-    }));
+    if (input.mlas === undefined || input.mlas === null) {
+      await this.processAllSyncedItems(input, counters);
+    } else if (input.mlas.length > 0) {
+      await this.processExplicitMlas(input, input.mlas, counters);
+    }
+    // input.mlas === [] activates nothing — counters stay at 0.
+
+    return { promotionId: input.promotionId, ...counters };
+  }
+
+  /** `mlas` omitted/null: page through every synced item of the promotion, DB_BATCH_SIZE at a time. */
+  private async processAllSyncedItems(
+    input: ActivateDealPromotionInput,
+    counters: ActivateDealPromotionCounters,
+  ): Promise<void> {
+    let afterId: string | undefined;
+
+    while (true) {
+      const batch = await this.builder.promotionRepository.findByPromotionIdBatch(
+        input.promotionId,
+        afterId,
+        ActivateDealPromotion.DB_BATCH_SIZE,
+      );
+
+      if (batch.length === 0) {
+        break;
+      }
+
+      await this.processBatch(batch, input, counters);
+      afterId = this.resolveLastProcessedId(batch, afterId);
+    }
+  }
+
+  /** `mlas` given explicitly: chunk it so a caller passing a huge list can't blow up memory either. */
+  private async processExplicitMlas(
+    input: ActivateDealPromotionInput,
+    mlas: string[],
+    counters: ActivateDealPromotionCounters,
+  ): Promise<void> {
+    const uniqueMlas = [...new Set(mlas)];
+
+    for (const chunk of this.chunkArray(uniqueMlas, ActivateDealPromotion.DB_BATCH_SIZE)) {
+      const found = await this.builder.promotionRepository.findByItemIds(input.promotionId, chunk);
+      await this.processBatch(found, input, counters);
+
+      const foundItemIds = new Set(found.map((promotion) => promotion.itemId));
+      for (const itemId of chunk) {
+        if (!foundItemIds.has(itemId)) {
+          counters.total += 1;
+          counters.skipped += 1;
+        }
+      }
+    }
+  }
+
+  /** Processes one bounded batch end-to-end and folds its results into `counters`, then drops them. */
+  private async processBatch(
+    batch: Promotion[],
+    input: ActivateDealPromotionInput,
+    counters: ActivateDealPromotionCounters,
+  ): Promise<void> {
+    if (batch.length === 0) {
+      return;
+    }
 
     const activeElsewhereItemIds = await this.builder.promotionRepository.findItemIdsWithActivePromotion(
-      targets.map((promotion) => promotion.itemId),
+      batch.map((promotion) => promotion.itemId),
       PromotionType.DEAL,
       input.promotionId,
     );
 
-    const processedResults = await mapWithConcurrency(
-      targets,
-      ActivateDealPromotion.CONCURRENCY,
-      (promotion) => this.processPromotion(promotion, input, activeElsewhereItemIds),
+    const results = await mapWithConcurrency(batch, ActivateDealPromotion.CONCURRENCY, (promotion) =>
+      this.processPromotion(promotion, input, activeElsewhereItemIds),
     );
 
-    return this.summarize(input.promotionId, [...processedResults, ...notFoundResults]);
-  }
-
-  private resolveTargets(
-    promotions: Promotion[],
-    mlas: string[] | null | undefined,
-  ): { targets: Promotion[]; notFoundItemIds: string[] } {
-    if (mlas === undefined || mlas === null) {
-      return { targets: promotions, notFoundItemIds: [] };
-    }
-
-    const byItemId = new Map(promotions.map((promotion) => [promotion.itemId, promotion]));
-    const targets: Promotion[] = [];
-    const notFoundItemIds: string[] = [];
-
-    for (const itemId of new Set(mlas)) {
-      const promotion = byItemId.get(itemId);
-      if (promotion) {
-        targets.push(promotion);
+    counters.total += results.length;
+    for (const result of results) {
+      if (result.status === 'success') {
+        counters.success += 1;
+      } else if (result.status === 'failure') {
+        counters.failure += 1;
       } else {
-        notFoundItemIds.push(itemId);
+        counters.skipped += 1;
       }
     }
-
-    return { targets, notFoundItemIds };
   }
 
-  private summarize(
-    promotionId: string,
-    items: ActivateDealPromotionItemResult[],
-  ): ActivateDealPromotionResult {
-    return {
-      promotionId,
-      total: items.length,
-      success: items.filter((item) => item.status === 'success').length,
-      skipped: items.filter((item) => item.status === 'skipped').length,
-      failure: items.filter((item) => item.status === 'failure').length,
+  private resolveLastProcessedId(promotions: Promotion[], fallback?: string): string | undefined {
+    const lastPromotion = promotions[promotions.length - 1] as Promotion & {
+      _id?: { toString(): string };
     };
+
+    return lastPromotion._id?.toString() ?? fallback;
+  }
+
+  private chunkArray<T>(items: T[], size: number): T[][] {
+    const chunks: T[][] = [];
+
+    for (let index = 0; index < items.length; index += size) {
+      chunks.push(items.slice(index, index + size));
+    }
+
+    return chunks;
   }
 
   private async processPromotion(
