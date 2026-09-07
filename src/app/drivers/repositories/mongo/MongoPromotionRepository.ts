@@ -354,6 +354,13 @@ export class MongoPromotionRepository implements PromotionRepository {
       query.itemId = filters.itemId;
     }
 
+    // Sin filtro, countDocuments({}) recorre la coleccion entera y se pasa del
+    // socketTimeoutMS (45s), tirando un 500 aunque el find sea instantaneo por
+    // el indice de updatedAt. estimatedDocumentCount lee la metadata en O(1).
+    // Solo aplica al caso sin filtro: con filtro el count va por indice y es
+    // exacto, que es lo que corresponde cuando hay un predicado.
+    const isUnfiltered = Object.keys(query).length === 0;
+
     const [items, total] = await Promise.all([
       this.promotionModel
       .find(query)
@@ -362,7 +369,9 @@ export class MongoPromotionRepository implements PromotionRepository {
       .limit(limit)
       .lean<Promotion[]>()
       .exec(),
-      this.promotionModel.countDocuments(query).exec(),
+      isUnfiltered
+        ? this.promotionModel.estimatedDocumentCount().exec()
+        : this.promotionModel.countDocuments(query).exec(),
     ]);
 
     return {
@@ -437,7 +446,15 @@ export class MongoPromotionRepository implements PromotionRepository {
           },
         },
       },
-    ]).exec();
+    ])
+      // El $group no lleva $match, y sin un predicado Mongo no elige el indice
+      // por su cuenta: arranca con COLLSCAN y se pasa del socketTimeoutMS (45s).
+      // Con el hint recorre el indice {type, status}, que solo tiene esos dos
+      // campos en vez del documento entero. Medido en produccion: 4s contra
+      // timeout. Si la coleccion sigue creciendo esto va a volver a molestar y
+      // la salida es cachear el resultado, no otro indice.
+      .option({ hint: { type: 1, status: 1 } })
+      .exec();
 
     const smart = this.createEmptyBreakdown();
     const deal = this.createEmptyBreakdown();
