@@ -73,7 +73,7 @@ export class ItemDetailResolver {
       Logger.warn(
         JSON.stringify({
           message: 'Catalog-Meli item detail lookup failed, falling back to Mercado Libre for the whole batch',
-          service: 'catalog-meli-api',
+          dependency: 'catalog-meli-api',
           itemCount: itemIds.length,
           reason: error instanceof Error ? error.message : 'Unknown catalog-meli error',
         }),
@@ -95,7 +95,7 @@ export class ItemDetailResolver {
     Logger.info(
       JSON.stringify({
         message: 'Catalog-Meli did not return some items, falling back to Mercado Libre for those',
-        service: 'catalog-meli-api',
+        dependency: 'catalog-meli-api',
         itemCount: itemIds.length,
         fallbackCount: notFound.length,
       }),
@@ -128,7 +128,7 @@ export class ItemDetailResolver {
       Logger.warn(
         JSON.stringify({
           message: 'Catalog-Meli item detail lookup failed, falling back to Mercado Libre',
-          service: 'catalog-meli-api',
+          dependency: 'catalog-meli-api',
           itemId,
           reason: error instanceof Error ? error.message : 'Unknown catalog-meli error',
         }),

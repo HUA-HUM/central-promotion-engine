@@ -163,7 +163,7 @@ export class APIMercadolibreApiRepository
           Logger.warn(
             JSON.stringify({
               message: 'Retrying promotion items page after transient Mercado Libre error',
-              service: 'mercadolibre-api',
+              dependency: 'mercadolibre-api',
               promotionId,
               promotionType,
               searchAfter: searchAfter ?? null,
@@ -178,15 +178,20 @@ export class APIMercadolibreApiRepository
           continue;
         }
 
-        Logger.warn(
+        // error y no warn: la promocion queda truncada, no es un caso benigno.
+        // El mensaje anterior decia "has no eligible items or failed to fetch
+        // them" y se confundia con una promocion legitimamente vacia, cuando
+        // esta rama solo se alcanza tras agotar los reintentos.
+        Logger.error(
           JSON.stringify({
-            message: `Promotion ${promotionId} of type ${promotionType} has no eligible items or failed to fetch them`,
-            service: 'mercadolibre-api',
+            message: `Promotion ${promotionId} of type ${promotionType} was truncated: Mercado Libre failed after ${attempt} attempts and the remaining pages were never fetched`,
+            dependency: 'mercadolibre-api',
             promotionId,
             promotionType,
             searchAfter: searchAfter ?? null,
             attempts: attempt,
             reason: message,
+            truncated: true,
           }),
         );
 
@@ -260,7 +265,7 @@ export class APIMercadolibreApiRepository
       Logger.warn(
         JSON.stringify({
           message: 'Failed to fetch item detail bulk chunk from Mercado Libre',
-          service: 'mercadolibre-api',
+          dependency: 'mercadolibre-api',
           itemIds,
           reason: message,
         }),

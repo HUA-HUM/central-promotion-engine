@@ -160,6 +160,13 @@ export class SyncAllPromotions {
     let failure = 0;
     const skipped = 0;
 
+    // Reconciliacion contra lo que Meli dice que tiene la promocion. Es la red
+    // que detecta cualquier truncamiento de la paginacion, sea por reintentos
+    // agotados, por un searchAfter que no avanza o por lo que venga: si al
+    // terminar procesamos menos de los que Meli reporto, algo se perdio.
+    let processedItems = 0;
+    let reportedTotal: number | null = null;
+
     try {
       const promotionModel = this.promotionModelsRegistry.resolve(promotionCatalog.type);
       let currentSearchAfter: string | undefined;
@@ -177,6 +184,13 @@ export class SyncAllPromotions {
         const failedPromotions: Promotion[] = [];
         const eligibleItems: EligibleItem[] = response.results ?? [];
         const nextSearchAfter: string | undefined = response.paging?.searchAfter;
+
+        // Se toma de la primera pagina que devuelva algo: cuando el repositorio
+        // agota los reintentos responde total 0, y ese cero no sirve de patron.
+        if (reportedTotal === null && (response.paging?.total ?? 0) > 0) {
+          reportedTotal = response.paging.total;
+        }
+        processedItems += eligibleItems.length;
 
         pendingPage =
           eligibleItems.length > 0 && nextSearchAfter && nextSearchAfter !== currentSearchAfter
@@ -397,6 +411,22 @@ export class SyncAllPromotions {
           promotionId: promotionCatalog.promotionId,
           promotionType: promotionCatalog.type,
           reason: error instanceof Error ? error.message : 'Unknown sync error',
+        }),
+      );
+    }
+
+    if (reportedTotal !== null && processedItems < reportedTotal) {
+      Logger.error(
+        JSON.stringify({
+          message: 'Promotion sync ended with fewer items than Mercado Libre reported: the promotion was truncated',
+          process: processName,
+          sourceProcess: input.sourceProcess,
+          promotionId: promotionCatalog.promotionId,
+          promotionType: promotionCatalog.type,
+          reportedTotal,
+          processedItems,
+          missingItems: reportedTotal - processedItems,
+          truncated: true,
         }),
       );
     }

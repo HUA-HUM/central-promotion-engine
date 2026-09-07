@@ -231,7 +231,10 @@ export class ActivatePromotions {
     }
 
     if (promotion.type === PromotionType.DEAL) {
-      Logger.info(
+      // debug y no info: se emitia una vez por item DEAL en cada corrida
+      // (2,78M lineas el 6/9, el 96% del volumen del servicio) para informar un
+      // hecho constante. El conteo ya sale agregado en `skipped` del resumen.
+      Logger.debug(
         JSON.stringify({
           message: 'Skipping DEAL activation because DEAL promotions require manual activation',
           process: 'activate',
